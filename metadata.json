@@ -1,0 +1,6 @@
+{
+  "name": "Sedona Court Travellers Inn Property Management System",
+  "description": "Professional front-desk property management system and analytics dashboard for room booking, real-time status tracking, POS operations, and weekly performance reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,244 @@
+================================================================================
+SEDONA COURT EXECUTIVE PROPERTY MANAGEMENT SYSTEM - ARCHITECTURE & DATA FLOW
+================================================================================
+
+This document provides a highly detailed guide explaining how data is stored,
+aggregated, sorted, and generated for graphs and ledgers in the Sedona Court 
+Executive Property Management System. Use this document as your blueprint 
+when reworking, extending, or integrating backend databases.
+
+--------------------------------------------------------------------------------
+1. THE CORE DATA STATE & STORAGE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+The application runs as a modern, client-side React single-page application (SPA).
+Because there is no active cloud backend database connected by default, all 
+persistent records are stored inside the browser's web storage (localStorage)
+using JSON serialization. This allows full session preservation across page reloads.
+
+A. LocalStorage Keys & Data Structure:
+   - `scti_rooms_v2`: Contains an array of all Room objects.
+     * Schema:
+       interface Room {
+         number: string;        // Room designation (e.g., "101", "102")
+         tier: 'studio' | 'deluxe' | 'suite' | 'executive';
+         state: 'available' | 'occupied' | 'cleaning' | 'overdue' | 'maintenance';
+         label: string;         // Guest short name displayed on board
+         guestName?: string;    // Full guest name
+         guestId?: string;      // ID card number (e.g., passport, DL)
+         numGuests?: number;    // Count of guests (pax count)
+         rateSelected?: '3h' | '12h' | '24h' | 'promo';
+         time: string;          // Countdown string (e.g., "1h 45m" or "+12m 4s")
+         checkInTime?: string;  // ISO string timestamp
+         checkOutTime?: string; // ISO string timestamp
+         extraBeds: number;     // Extra beds count
+         towelSets: number;     // Extra towels count
+         chargedFood?: Array<{  // Room service and manual extras charges
+           item: POSItem;
+           quantity: number;
+         }>;
+       }
+
+   - `scti_scheduled_bookings`: List of upcoming guest bookings scheduled via the Calendar.
+     * Schema:
+       interface ScheduledBooking {
+         id: string;
+         roomNumber: string;
+         guestName: string;
+         guestId?: string;
+         checkInDate: string;   // "YYYY-MM-DD"
+         checkOutDate: string;  // "YYYY-MM-DD"
+         rateSelected: '3h' | '12h' | '24h' | 'promo';
+         numGuests: number;
+         status: 'scheduled' | 'checked-in' | 'cancelled';
+       }
+
+   - `scti_session_receipts`: Historical record of all generated receipts.
+     * Schema:
+       interface Receipt {
+         id: string;            // Unique Receipt # (e.g., "REC-16892019-X")
+         roomNumber: string;
+         guestName: string;
+         guestId: string;
+         rateSelected: string;
+         checkInTime: string;
+         checkOutTime: string;
+         baseRateAmount: number;
+         extraBedsCharge: number;
+         extraTowelsCharge: number;
+         foodServiceCharge: number;
+         discountAmount: number;
+         discountType: 'none' | 'senior' | 'pwd' | 'promo';
+         taxAmount: number;
+         totalAmount: number;
+         paymentMethod: 'cash' | 'gcash' | 'card';
+         referenceNumber?: string;
+         cashier: string;
+         timestamp: string;     // Creation timestamp
+       }
+
+   - `scti_pos_rev` & `scti_pos_cat_rev`: Coordinates external point-of-sale cash
+     revenue from direct walk-in customers (e.g., walk-in dining or instant drinks).
+   - `scti_triggered_alarms`: Keeps track of which rooms have fired alarms for
+     warning, checkout, and grace period exceedance so they chime exactly once.
+   - `scti_operator`: Active operator username (ann, cashier, admin, owner, cleaner).
+   - `scti_pending_tasks`: Tracks handoff tasks list for shift turnover.
+
+B. Seed Data (/src/data.ts):
+   If localStorage is empty, the system falls back to seed data loaded from `src/data.ts`:
+   - `INITIAL_ROOMS`: Default rooms structured as 32 individual apartments (Studio, Deluxe, etc.).
+   - `POS_CATALOG`: Menu catalog of food, drinks, and the custom "Extras" tier additions.
+   - `USER_ACCOUNTS`: Defines pre-seeded user accounts with passwords and access roles.
+
+--------------------------------------------------------------------------------
+2. REAL-TIME TRACKING, SCHEDULING, AND ALARM TRIGGERS
+--------------------------------------------------------------------------------
+
+A global, reactive tracker is declared in `App.tsx` utilizing a 1,000ms interval loop.
+This mechanism calculates live countdowns and executes real-time transitions:
+
+A. Countdown calculation:
+   - For any Room where `state` is 'occupied' or 'overdue' and a `checkOutTime` exists:
+     * `diffMs = checkOutTime.getTime() - now.getTime()`
+     * If `diffMs > 0` (Checkout in future):
+       - Generates text countdown: e.g., `${hours}h ${minutes}m` or `${minutes}m ${seconds}s`.
+     * If `diffMs <= 0` (Checkout is overdue):
+       - Automatically transitions the Room state from `'occupied'` to `'overdue'`.
+       - Generates overdue indicator text: e.g., `+${overdueHours}h ${overdueMinutes}m`.
+
+B. Alarm and Chime Threshold Checkers:
+   To prevent repeated annoying beeping, the system stores triggered alerts inside 
+   `triggeredAlarms` state with key format: `[RoomNumber]_[CheckInTime]`.
+   The interval evaluates three distinct alarm milestones:
+   
+   1. The Warning Zone (15 Minutes Before Checkout):
+      * Threshold: `diffMins <= 15 && diffMins > 0`
+      * Action: Marks `warning = true` in triggered alarms, plays the 'warning' chime sound, 
+        and updates the Room color class and badges to a dynamic yellow-orange color scheme.
+        
+   2. The Checkout Allotment (Exactly Checkout Time):
+      * Threshold: `diffMins <= 0` (and `!triggers.checkout`)
+      * Action: Marks `checkout = true` in triggered alarms, plays the 'checkout' chime sound,
+        posts a system-wide alert notification banner, and sets Room state to `'overdue'`.
+        
+   3. The Overdue Grace Exceedance (15 Minutes Past Checkout):
+      * Threshold: `diffMins <= -15` (and `!triggers.grace`)
+      * Action: Marks `grace = true` in triggered alarms, plays the 'grace' high-urgency alarm chime,
+        and prompts the frontend header and card grids to flash purple alerting flags.
+
+--------------------------------------------------------------------------------
+3. POINT OF SALE (POS) & ROOM EXTRA CHARGES
+--------------------------------------------------------------------------------
+
+A modular catalog handles billing additionals, separating standard items from 
+amenity requests:
+
+- Menu Catalog Selection: Items have category headers like `Breakfast`, `Drinks`, 
+  `Misc`, and `Extras`.
+- "Extras" Billing: The "Clean Form" extra selections (such as Extra Bed ₱250, 
+  Extra Person ₱150, Pillow ₱200, Towel ₱150) are catalog entries. 
+- Charging Flow:
+  1. Operator opens the Room Detail Drawer.
+  2. Clicking any quick F&B button or quick Extra button calls `addFoodItem()`.
+  3. This appends the selection directly into the room's `chargedFood` array.
+  4. Quantities are managed reactively via `changeFoodQty()`.
+  5. The subtotal of charged items is calculated instantly with:
+     `foodCharge = chargedFood.reduce((sum, order) => sum + order.item.price * order.quantity, 0)`
+  6. Upon checkout, this subtotal is loaded dynamically into the receipt ledger.
+
+--------------------------------------------------------------------------------
+4. LEDGERS, TRANSITIONS & REVENUE CALCULATIONS
+--------------------------------------------------------------------------------
+
+When a Room is checked out, a physical transaction receipt ledger (`Receipt`) 
+is generated and appended to the `sessionReceipts` collection. 
+
+Accounting calculation formulas used during Receipt generation:
+- Base Rate: Pulled from room tier configurations in `/src/utils/pricing.ts` or set at check-in.
+- Extra Bed Charge: `room.extraBeds * 300` (computed dynamically).
+- Extra Towel Charge: `room.towelSets * 50` (computed dynamically).
+- Room Service & Extra Charges Subtotal: Aggregated from `room.chargedFood`.
+- Subtotal Before Discount: 
+  `subtotal = baseRate + extraBedsCharge + extraTowelsCharge + foodServiceCharge`
+- Discount Deductions:
+  * Senior Citizen / PWD Discount (20% Off Base rate and select items):
+    `discountAmount = baseRate * 0.20`
+  * Custom Promo Rates / Flat rate adjustments apply specific discount cuts.
+- Net Total calculation:
+  `totalAmount = subtotal - discountAmount`
+- Tax Split (12% VAT representation):
+  `taxAmount = totalAmount * (12 / 112)` (calculated as tax-inclusive VAT).
+
+Once checked out, the room's temporary counters are reset to 0, state is transitioned
+to `cleaning`, and the completed `Receipt` is written permanently into `sessionReceipts`.
+
+--------------------------------------------------------------------------------
+5. REPORTS PANEL, GRAPHS & ADMIN ANALYTICS ENGINE
+--------------------------------------------------------------------------------
+
+The Admin & Owner dashboard (`ReportsPanel.tsx`) dynamically reads and aggregates
+the arrays stored in `sessionReceipts` and active rooms to form standard report ledgers.
+
+A. Key Performance Indicator (KPI) Aggregations:
+   - Total Gross Revenue: 
+     Calculated by combining all checkout receipts with stand-alone direct POS sales:
+     `totalGross = sessionReceipts.reduce((sum, r) => sum + r.totalAmount, 0) + additionalPOSRevenue`
+   - Room Bookings Revenue:
+     Sum of base rates + bed charges + towel charges from checkout receipts:
+     `roomRevenue = sessionReceipts.reduce((sum, r) => sum + r.baseRateAmount + r.extraBedsCharge + r.extraTowelsCharge, 0)`
+   - Food Service & Extras Revenue:
+     Subtotal of F&B and manual Extras purchases:
+     `foodServiceRev = sessionReceipts.reduce((sum, r) => sum + r.foodServiceCharge, 0) + additionalPOSRevenue`
+   - Active Cash Float:
+     Calculated from physical cash invoices (excluding GCash and Credit Card):
+     `cashFloat = sessionReceipts.filter(r => r.paymentMethod === 'cash').reduce((sum, r) => sum + r.totalAmount, 0)`
+
+B. Analytical Graphs (Using Recharts or custom styled bar lines):
+   1. Payment Method Breakdown Ledger:
+      Calculates totals per channel:
+      * Cash: `sessionReceipts.filter(r => r.paymentMethod === 'cash')`
+      * GCash: `sessionReceipts.filter(r => r.paymentMethod === 'gcash')`
+      * Card: `sessionReceipts.filter(r => r.paymentMethod === 'card')`
+   2. Hourly Occupancy & Peak Performance Reports:
+      Analyzes checkout timestamps to group busy checkout times and peak lodging hours.
+   3. Tier Popularity Charts:
+      Counts frequency of checked-out tier categories (Studio vs Deluxe vs Executive) to show high-performing room formats.
+
+C. Ledgers and Transcripts:
+   - The panel lists all generated receipts in chronological order (`sessionReceipts`).
+   - Filters are available to search by Room Number, Cashier Operator, or Payment Type.
+   - Summarized GCash reference audit lists help reconciliation boards double check mobile payments.
+
+--------------------------------------------------------------------------------
+6. REWORK GUIDE FOR DATA INTEGRATION
+--------------------------------------------------------------------------------
+
+If you want to replace this frontend localStorage implementation with a relational 
+database (SQL / Drizzle) or document-oriented platform (Firebase Firestore):
+
+A. State Hooks Replacement:
+   Instead of using React `useState` hooks loaded with `localStorage.getItem()`,
+   load collections on mount using async database fetch hooks:
+   
+   Example (Firestore):
+   useEffect(() => {
+     const unsubscribe = onSnapshot(collection(db, 'rooms'), (snapshot) => {
+       const roomList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+       setRooms(roomList);
+     });
+     return () => unsubscribe();
+   }, []);
+
+B. Transaction Ledger Writing:
+   When checking out, replace the local state appends (`setSessionReceipts`) with
+   direct, secure database inserts:
+   
+   await addDoc(collection(db, 'receipts'), newReceipt);
+
+C. Dynamic Tracker Alignment:
+   Since write frequencies to cloud databases cost compute, keep the 1,000ms countdown 
+   interval running *locally* inside React, but write threshold alarms or room state 
+   transitions (like setting a room to 'overdue') to the cloud database on a single-point 
+   event when the transition first happens. This avoids redundant writes while maintaining 
+   real-time precision on screens.
+================================================================================

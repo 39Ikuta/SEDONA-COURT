@@ -1,0 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom Sedona Court Warm Minimalist Palette */
+  --color-primary: #793743;          /* Rich burgundy red wine */
+  --color-primary-light: #944654;    /* Subtle hover state of primary */
+  --color-secondary: #E1DAD0;        /* Elegant warm beige border */
+  --color-cream: #FAF8F5;            /* Clean warm off-white for cards */
+  --color-accent: #1A5730;           /* Forest Green for accent highlights */
+  --color-charcoal: #424145;         /* Muted deep slate charcoal */
+  --color-muted-bg: #F2EEE9;         /* Neutral background sand/cream */
+}
+
+@layer base {
+  body {
+    background-color: #F2EEE9 !important;
+    color: #424145 !important;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Global Card & Module Elements styled with Warm Minimalist Aesthetic (scoped to main content & aside) */
+main .bg-white, 
+main .bg-white\/40, 
+main .bg-cream\/40,
+aside > div,
+main section {
+  border-radius: 24px !important;
+  border: 1px solid #E1DAD0 !important;
+  box-shadow: 0 4px 20px -2px rgba(121, 55, 67, 0.03), 0 2px 6px -1px rgba(0, 0, 0, 0.02) !important;
+  background-color: #FAF8F5 !important;
+  color: #424145 !important;
+}
+
+/* Translucent Glass Header Bar */
+header {
+  background-color: rgba(250, 248, 245, 0.88) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid #E1DAD0 !important;
+}
+
+/* Navigation System styling */
+nav.header-nav {
+  background-color: rgba(66, 65, 69, 0.05);
+  border: 1px solid rgba(225, 218, 208, 0.9);
+  border-radius: 16px;
+}
+
+/* Active navigation tab highlighters */
+[layoutid="activeHeaderTab"],
+div[style*="activeHeaderTab"] {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(225, 218, 208, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Form Controls and Inputs styled for the warm cream aesthetic */
+input, select, textarea {
+  background-color: #FAF8F5 !important;
+  border: 1px solid #E1DAD0 !important;
+  color: #424145 !important;
+  border-radius: 12px !important;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #793743 !important;
+  box-shadow: 0 0 0 1px #793743 !important;
+}
+
+option {
+  background-color: #FAF8F5 !important;
+  color: #424145 !important;
+}
+
+/* Clean, high-contrast typography overrides for text-charcoal opacities */
+.text-charcoal {
+  color: #424145 !important;
+}
+.text-charcoal\/90 { color: rgba(66, 65, 69, 0.95) !important; }
+.text-charcoal\/80 { color: rgba(66, 65, 69, 0.85) !important; }
+.text-charcoal\/70 { color: rgba(66, 65, 69, 0.75) !important; }
+.text-charcoal\/60 { color: rgba(66, 65, 69, 0.65) !important; }
+.text-charcoal\/50 { color: rgba(66, 65, 69, 0.55) !important; }
+.text-charcoal\/40 { color: rgba(66, 65, 69, 0.48) !important; }
+.text-charcoal\/30 { color: rgba(66, 65, 69, 0.38) !important; }
+.text-charcoal\/20 { color: rgba(66, 65, 69, 0.22) !important; }
+
+/* Accessible keyboard navigation focus ring */
+:focus-visible {
+  outline: 2px solid #793743 !important;
+  outline-offset: 2px !important;
+}
+
+/* Re-map Primary Brand Layouts */
+.bg-primary {
+  background-color: #793743 !important;
+  color: #FAF8F5 !important;
+}
+.text-primary {
+  color: #793743 !important;
+}
+.bg-primary\/5 {
+  background-color: rgba(121, 55, 67, 0.05) !important;
+}
+.bg-primary\/2 {
+  background-color: rgba(121, 55, 67, 0.02) !important;
+}
+.hover\:bg-primary-light:hover {
+  background-color: #944654 !important;
+}
+
+/* Alert/Accent color schemes (using deep Burgundy and highlights) */
+.text-accent {
+  color: #793743 !important;
+}
+.bg-accent\/5 {
+  background-color: rgba(121, 55, 67, 0.05) !important;
+}
+
+/* Earthy & Clean Status Badges mapped to our palette */
+
+/* AVAILABLE (Sage & Forest Green - #1A5730) */
+.bg-green-50\/40 {
+  background-color: #E2ECE5 !important; /* Soft premium sage linen */
+}
+.hover\:bg-green-50\/70:hover {
+  background-color: #CCDCD1 !important; /* Slightly deeper warm sage hover */
+}
+.border-emerald-200\/80 {
+  border-color: #A3BFAD !important; /* Warm forest border */
+}
+.text-emerald-800, .text-emerald-600 {
+  color: #1A5730 !important; /* Rich brand forest green text */
+}
+.bg-emerald-500 {
+  background-color: #1A5730 !important; /* Solid forest green */
+}
+.bg-emerald-50 {
+  background-color: #E2ECE5 !important;
+}
+.border-emerald-100 {
+  border-color: #B8D0C0 !important;
+}
+
+/* OCCUPIED (Warm Dusty Rose & Burgundy - #793743) */
+.bg-rose-50\/35 {
+  background-color: #F5ECEE !important; /* Elegant dusty warm rose-linen */
+}
+.hover\:bg-rose-50\/60:hover {
+  background-color: #EBDBDF !important; /* Slightly deeper wine hover */
+}
+.border-rose-200\/80 {
+  border-color: #D1B4B9 !important; /* Soft Burgundy border */
+}
+.text-rose-900, .text-rose-600 {
+  color: #793743 !important; /* Rich brand burgundy wine text */
+}
+.bg-rose-500 {
+  background-color: #793743 !important; /* Solid burgundy red */
+}
+.bg-rose-50 {
+  background-color: #F5ECEE !important;
+}
+.border-rose-100 {
+  border-color: #E0C7CC !important;
+}
+
+/* CLEANING (Amber Ochre - #C08C2B) */
+.bg-amber-50\/35 {
+  background-color: #F7EFE1 !important; /* Warm honey desert sand */
+}
+.hover\:bg-amber-50\/60:hover {
+  background-color: #EFE3CF !important; /* Deeper sand ochre hover */
+}
+.border-amber-200\/80 {
+  border-color: #DFCDAF !important; /* Warm sand border */
+}
+.text-amber-900, .text-amber-600 {
+  color: #9C6C1B !important; /* Deep earth gold text */
+}
+.bg-amber-500 {
+  background-color: #C08C2B !important; /* Solid ochre gold */
+}
+.bg-amber-50 {
+  background-color: #F7EFE1 !important;
+}
+.border-amber-100 {
+  border-color: #EADCBF !important;
+}
+
+/* OVERDUE / LATE CHECKOUT (Plum - #6B3B5C) */
+.bg-purple-50\/40 {
+  background-color: #F3EDF1 !important; /* Muted dusk lavender/plum linen */
+}
+.hover\:bg-purple-50\/70:hover {
+  background-color: #E6DAE3 !important; /* Deeper plum-mist hover */
+}
+.border-purple-300 {
+  border-color: #CBB0C2 !important; /* Soft dusk border */
+}
+.text-purple-900, .text-purple-600 {
+  color: #6B3B5C !important; /* Muted deep plum text */
+}
+.bg-purple-500 {
+  background-color: #6B3B5C !important; /* Solid deep plum */
+}
+.bg-purple-50 {
+  background-color: #F3EDF1 !important;
+}
+.border-purple-100 {
+  border-color: #DCBFD2 !important;
+}
+
+/* MAINTENANCE / INACTIVE */
+.bg-gray-50\/50, .hover\:bg-gray-50\/80:hover {
+  background-color: rgba(66, 65, 69, 0.02) !important;
+}
+.border-gray-200 {
+  border-color: rgba(66, 65, 69, 0.1) !important;
+}
+.text-gray-700, .text-gray-500 {
+  color: rgba(66, 65, 69, 0.5) !important;
+}
+.bg-gray-400 {
+  background-color: rgba(66, 65, 69, 0.25) !important;
+}
+.bg-gray-50 {
+  background-color: rgba(66, 65, 69, 0.04) !important;
+}
+.border-gray-100 {
+  border-color: rgba(66, 65, 69, 0.08) !important;
+}
+
+/* Log and List Tables styling */
+table th {
+  background-color: #FAF8F5 !important;
+  color: rgba(66, 65, 69, 0.5) !important;
+}
+tr:hover {
+  background-color: rgba(66, 65, 69, 0.01) !important;
+}
+
+/* Scrollbars customized to blend with warm sand palette */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(66, 65, 69, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #793743;
+}
+
+/* Print utilities — minimal base rules only.
+   All content isolation (hiding the app, showing only the ticket) is handled by
+   the printBrowserReceipt() utility which injects scoped styles dynamically. */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  *, *::before, *::after {
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+  html, body {
+    width: 80mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 11px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    -webkit-font-smoothing: antialiased !important;
+    text-rendering: optimizeLegibility !important;
+  }
+}
