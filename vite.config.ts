@@ -49,20 +49,8 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // Allow ngrok, Cloudflare tunnels, and local domains
-      allowedHosts: [
-        'www.sedonacourt.fyi',
-        'sedonacourt.fyi',
-        '.sedonacourt.fyi',
-        'working-cloth-sum-hiking.trycloudflare.com',
-        '.trycloudflare.com',
-        'doretta-unordained-josiah.ngrok-free.dev',
-        '.ngrok-free.dev',
-        '.ngrok.app',
-        '.ngrok.io',
-        'localhost',
-        '127.0.0.1',
-      ],
+      // Allow all local network IPs, ngrok, Cloudflare tunnels, and local domains
+      allowedHosts: true,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
