@@ -342,10 +342,4 @@ Change `API_PORT` in `.env.local`, and update the frontend proxy in `vite.config
 **WebSocket connection fails**
 Confirm the backend is running on the expected port, check CORS settings in `server/index.ts`, and make sure your firewall allows WebSocket connections.
 
-## License
 
-Part of Google AI Studio.
-
-## Acknowledgments
-
-Built with [Google AI Studio](https://ai.studio/), powered by Gemini AI.
