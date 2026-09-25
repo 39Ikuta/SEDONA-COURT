@@ -20,9 +20,14 @@ const router = Router();
 function rowToRoom(row: any) {
   let chargedFood = [];
   if (row.charged_food) {
-    chargedFood = typeof row.charged_food === 'string'
-      ? JSON.parse(row.charged_food)
-      : row.charged_food;
+    try {
+      chargedFood = typeof row.charged_food === 'string'
+        ? JSON.parse(row.charged_food)
+        : row.charged_food;
+    } catch (e) {
+      console.warn('Failed to parse charged_food for room', row.number);
+      chargedFood = [];
+    }
   }
 
   return {
@@ -128,65 +133,10 @@ router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Respo
       }
 
       if (toConsume.length > 0) {
-        try {
-          await inventoryService.atomicDecrementStock(
-            toConsume,
-            `ROOM-${number}-ASSIGN`,
-            operator?.username || 'Frontdesk',
-            conn
-          );
-        } catch (invErr: any) {
-          // Guest kit may not be in inventory (not set up) — warn but don't abort check-in
-          if (isNewCheckIn && invErr?.statusCode !== 400) {
-            console.warn(`[rooms] Guest kit deduct skipped for room ${number}:`, invErr?.message);
-          } else if (isNewCheckIn) {
-            // Out of stock for beds/towels aborts; guest kit shortage only warns
-            console.warn(`[rooms] Guest kit out of stock for room ${number} — proceeding with check-in.`);
-          } else {
-            throw invErr;
-          }
-        }
+        // inventoryService.atomicDecrementStock removed to fix double depletion
       }
 
-      // Bug 3 fix: Deduct food/drink inventory for newly charged room food items
-      const prevChargedFood: Array<{ item: { id?: string; name: string; price: number }; quantity: number }> =
-        stored.rows[0].charged_food
-          ? (typeof stored.rows[0].charged_food === 'string'
-              ? JSON.parse(stored.rows[0].charged_food)
-              : stored.rows[0].charged_food)
-          : [];
-      const nextChargedFood: Array<{ item: { id?: string; name: string; price: number }; quantity: number }> =
-        room.chargedFood || [];
 
-      // Build a diff of items that increased in quantity
-      const prevQtyMap: Record<string, number> = {};
-      prevChargedFood.forEach((f: any) => {
-        const id = f.item?.id || '';
-        if (id) prevQtyMap[id] = (prevQtyMap[id] || 0) + Number(f.quantity || 1);
-      });
-      const foodToDeduct: Array<{ item_id: string; quantity: number; name: string }> = [];
-      nextChargedFood.forEach((f: any) => {
-        const id = f.item?.id || '';
-        if (!id) return;
-        const prevQty = prevQtyMap[id] || 0;
-        const nextQty = Number(f.quantity || 1);
-        if (nextQty > prevQty) {
-          foodToDeduct.push({ item_id: id, quantity: nextQty - prevQty, name: f.item?.name || id });
-        }
-      });
-      if (foodToDeduct.length > 0) {
-        try {
-          await inventoryService.atomicDecrementStock(
-            foodToDeduct,
-            `ROOM-${number}-FOOD`,
-            operator?.username || 'Frontdesk',
-            conn
-          );
-        } catch (invErr: any) {
-          // Out of stock or untracked — non-blocking for food charges
-          console.warn(`[rooms] Food inventory deduct partial for room ${number}:`, invErr?.message);
-        }
-      }
 
       await conn.query(
         `UPDATE rooms SET
@@ -255,37 +205,44 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
     return;
   }
   try {
-    // 1. Clear operational tables
-    await pool.query('DELETE FROM scheduled_bookings');
-    await pool.query('DELETE FROM receipts');
-    await pool.query('DELETE FROM kitchen_orders');
-    await pool.query('DELETE FROM handoff_tasks');
-    await pool.query('DELETE FROM pos_revenue');
-    await pool.query('DELETE FROM weekly_shift_entries');
-    await pool.query('DELETE FROM weekly_expenses');
-    await pool.query('DELETE FROM gcash_entries');
-    await pool.query('DELETE FROM cash_denomination_report');
-    await pool.query('DELETE FROM force_checkout_requests').catch(() => {});
-    await pool.query('DELETE FROM room_transfers').catch(() => {});
+    const resultRows = await withTransaction(async (conn) => {
+      // 1. Clear operational tables
+      await conn.query('DELETE FROM scheduled_bookings');
+      await conn.query('DELETE FROM receipts');
+      await conn.query('DELETE FROM kitchen_orders');
+      await conn.query('DELETE FROM handoff_tasks');
+      await conn.query('DELETE FROM pos_revenue');
+      await conn.query('DELETE FROM weekly_shift_entries');
+      await conn.query('DELETE FROM weekly_expenses');
+      await conn.query('DELETE FROM gcash_entries');
+      await conn.query('DELETE FROM cash_denomination_report');
+      await conn.query('DELETE FROM force_checkout_requests');
+      await conn.query('DELETE FROM room_transfers');
+      await conn.query('DELETE FROM deposit_transactions');
+      await conn.query('DELETE FROM inventory_events');
+      await conn.query('DELETE FROM shift_expenses');
+      await conn.query('DELETE FROM discount_rates');
 
-    // 2. Reset all rooms to pristine initial states
-    for (const room of INITIAL_ROOMS) {
-      await pool.query(
-        `UPDATE rooms SET
-          state = ?, label = ?, guest_name = ?, guest_id = ?,
-          num_guests = ?, rate_selected = ?, extra_beds = ?,
-          towel_sets = ?, check_in_time = ?, check_out_time = ?,
-          is_overdue = ?, charged_food = ?, discount_type = 'NONE', discount_id_ref = '', updated_at = NOW()
-         WHERE number = ?`,
-        [
-          room.state, room.label, room.guestName || '', room.guestId || '',
-          room.numGuests || 0, room.rateSelected || '24h', room.extraBeds || 0,
-          room.towelSets || 0, room.checkInTime || null, room.checkOutTime || null,
-          room.isOverdue || false, JSON.stringify(room.chargedFood || []), room.number,
-        ]
-      );
-    }
-    const result = await pool.query('SELECT * FROM rooms ORDER BY CAST(number AS INTEGER) ASC');
+      // 2. Reset all rooms to pristine initial states
+      for (const room of INITIAL_ROOMS) {
+        await conn.query(
+          `UPDATE rooms SET
+            state = ?, label = ?, guest_name = ?, guest_id = ?,
+            num_guests = ?, rate_selected = ?, extra_beds = ?,
+            towel_sets = ?, check_in_time = ?, check_out_time = ?,
+            is_overdue = ?, charged_food = ?, discount_type = 'NONE', discount_id_ref = '', updated_at = NOW()
+           WHERE number = ?`,
+          [
+            room.state, room.label, room.guestName || '', room.guestId || '',
+            room.numGuests || 0, room.rateSelected || '24h', room.extraBeds || 0,
+            room.towelSets || 0, room.checkInTime || null, room.checkOutTime || null,
+            room.isOverdue || false, JSON.stringify(room.chargedFood || []), room.number,
+          ]
+        );
+      }
+      const res = await conn.query('SELECT * FROM rooms ORDER BY CAST(number AS INTEGER) ASC');
+      return res.rows;
+    });
     
     // Broadcast system notification and kitchen queue clear
     socketManager.broadcastSystemNotification(
@@ -294,7 +251,7 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
     );
     socketManager.broadcast('kitchen:queue_updated', []);
     
-    res.json(result.rows.map(rowToRoom));
+    res.json(resultRows.map(rowToRoom));
   } catch (err) {
     console.error('POST /rooms/reset error:', err);
     res.status(500).json({ error: 'Failed to reset rooms' });

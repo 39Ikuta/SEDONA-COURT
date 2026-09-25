@@ -64,21 +64,7 @@ export function parseDatabaseUrl(url: string): PoolConfig {
     };
   }
 
-  try {
-    const parsed = new URL(url);
-    if (!parsed.hostname && !url.startsWith('sqlite://')) {
-      throw new Error('Missing hostname in database URL');
-    }
-    return {
-      host: parsed.hostname,
-      port: parsed.port ? parseInt(parsed.port, 10) : 3306,
-      user: decodeURIComponent(parsed.username || 'root'),
-      password: decodeURIComponent(parsed.password || ''),
-      database: parsed.pathname ? parsed.pathname.replace(/^\//, '') : 'sedona_court',
-    };
-  } catch (err: any) {
-    throw new Error(`Invalid DATABASE_URL: "${url}". ${err.message || ''}`);
-  }
+  throw new Error(`Unsupported database protocol. Only sqlite:// and file: are supported. Provided: ${url}`);
 }
 
 // Initialize SQLite database instance
@@ -101,6 +87,28 @@ try {
   sqliteDb.function('UNIX_TIMESTAMP', (d?: string) =>
     d ? Math.floor(new Date(d).getTime() / 1000) : Math.floor(Date.now() / 1000)
   );
+  sqliteDb.function('TIMESTAMPDIFF', (unit: any, start: any, end: any) => {
+    if (!unit || !start || !end) return null;
+    const parseDate = (d: any) => {
+      if (typeof d === 'string') return new Date(d.replace(' ', 'T')).getTime();
+      return new Date(d).getTime();
+    };
+    const startMs = parseDate(start);
+    const endMs = parseDate(end);
+    if (isNaN(startMs) || isNaN(endMs)) return null;
+    const diffMs = endMs - startMs;
+    const safeUnit = String(unit).toUpperCase();
+    switch (safeUnit) {
+      case 'SECOND': return Math.floor(diffMs / 1000);
+      case 'MINUTE': return Math.floor(diffMs / 60000);
+      case 'HOUR': return Math.floor(diffMs / 3600000);
+      case 'DAY': return Math.floor(diffMs / 86400000);
+      case 'WEEK': return Math.floor(diffMs / 604800000);
+      case 'MONTH': return Math.floor(diffMs / 2592000000);
+      case 'YEAR': return Math.floor(diffMs / 31536000000);
+      default: return 0;
+    }
+  });
 } catch {
   // Functions may already be registered
 }
@@ -145,6 +153,20 @@ export function initializeDatabaseSync(): void {
     }
   } catch (err) {
     console.warn('rooms.custom_hours migration check warning:', err);
+  }
+
+  try {
+    const weeklyCols = sqliteDb.prepare('PRAGMA table_info(weekly_expenses)').all() as Array<{ name: string }>;
+    const weeklyColNames = new Set(weeklyCols.map(c => c.name));
+    if (!weeklyColNames.has('finalized_at')) {
+      sqliteDb.exec(`
+        ALTER TABLE weekly_expenses ADD COLUMN finalized_at TEXT DEFAULT NULL;
+        ALTER TABLE weekly_expenses ADD COLUMN finalized_by TEXT DEFAULT NULL;
+      `);
+      console.log('✅ Migrated weekly_expenses finalized columns.');
+    }
+  } catch (err) {
+    console.warn('weekly_expenses finalized migration check warning:', err);
   }
   try {
     const receiptCols = sqliteDb.prepare('PRAGMA table_info(receipts)').all() as Array<{ name: string }>;
@@ -328,52 +350,7 @@ export function initializeDatabaseSync(): void {
     }
   }
 
-  // Ensure default billable services have current room rates, menu items, and extra charges
-  try {
-    const validIds = new Set(DEFAULT_BILLABLE_SERVICES.map(s => s.id));
-    const allDbServices = sqliteDb.prepare("SELECT id, type FROM billable_services WHERE type = 'menu_item'").all() as { id: string; type: string }[];
-    for (const row of allDbServices) {
-      if (!validIds.has(row.id)) {
-        sqliteDb.prepare("DELETE FROM billable_services WHERE id = ?").run(row.id);
-      }
-    }
 
-    for (const svc of DEFAULT_BILLABLE_SERVICES) {
-      sqliteDb.prepare(`
-        INSERT INTO billable_services (
-          id, type, name, price, category, active, description,
-          rate_type, weekday_override, weekend_override, seasonal_override,
-          seasonal_start, seasonal_end, image_url, is_deleted
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          name = excluded.name,
-          price = excluded.price,
-          category = excluded.category,
-          active = excluded.active,
-          description = excluded.description,
-          image_url = excluded.image_url
-      `).run(
-        svc.id,
-        svc.type,
-        svc.name,
-        svc.price,
-        svc.category,
-        svc.active ? 1 : 0,
-        svc.description || null,
-        svc.rateType || null,
-        svc.weekdayOverride || null,
-        svc.weekendOverride || null,
-        svc.seasonalOverride || null,
-        svc.seasonalStart || null,
-        svc.seasonalEnd || null,
-        svc.imageUrl || null,
-        svc.isDeleted ? 1 : 0
-      );
-    }
-    console.log('✅ SQLite billable services synced with official menu, rates, and charges.');
-  } catch (syncErr) {
-    console.warn('Billable services sync warning:', syncErr);
-  }
 
   // Ensure discount_rates table exists and sync with fixed centavos rate card
   try {
@@ -382,7 +359,7 @@ export function initializeDatabaseSync(): void {
         id                TEXT PRIMARY KEY,
         discount_type     TEXT NOT NULL CHECK (discount_type IN ('SENIOR', 'DC')),
         room_tier         TEXT NOT NULL CHECK (room_tier IN ('CLASSIC', 'PREMIUM', 'VIP')),
-        duration          TEXT NOT NULL CHECK (duration IN ('3HR', '12HR', '24HR')),
+        duration          TEXT NOT NULL CHECK (duration IN ('3HR', '6HR', '12HR', '24HR')),
         amount_centavos   INTEGER NOT NULL CHECK (amount_centavos > 0),
         description       TEXT,
         created_at        TEXT DEFAULT (datetime('now', 'localtime')),
@@ -537,6 +514,9 @@ export function convertPgQueryToMysql(sql: string, params?: any[]): { sql: strin
  */
 export function convertSqlForSqlite(sql: string): string {
   let s = sql;
+
+  // Convert TIMESTAMPDIFF(UNIT, ...) -> TIMESTAMPDIFF('UNIT', ...)
+  s = s.replace(/TIMESTAMPDIFF\s*\(\s*([a-zA-Z]+)\s*,/gi, "TIMESTAMPDIFF('$1',");
 
   // Convert EXTRACT(HOUR FROM col)
   s = s.replace(/EXTRACT\s*\(\s*HOUR\s+FROM\s+([a-zA-Z0-9_.]+)\s*\)/gi, "cast(strftime('%H', $1) as integer)");
