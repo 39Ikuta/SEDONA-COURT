@@ -4,6 +4,7 @@ import { Room, ForceCheckoutReason, ForceCheckoutResolution } from '../types';
 import { X, ShieldAlert, AlertTriangle, Send, CheckCircle2, UserX, Clock, Scale, Siren, RefreshCw, Loader2 } from 'lucide-react';
 import { submitForceCheckoutRequest, directForceCheckoutOverride } from '../api/force-checkout';
 import { formatStayDuration } from '../utils/pricing';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface ForceCheckoutModalProps {
   room: Room;
@@ -76,6 +77,8 @@ export const ForceCheckoutModal: React.FC<ForceCheckoutModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useModalEscape(true, onClose, !isSubmitting);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notes.trim()) {
@@ -117,7 +120,12 @@ export const ForceCheckoutModal: React.FC<ForceCheckoutModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal/60 backdrop-blur-sm animate-fade-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="force-checkout-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal/60 backdrop-blur-sm animate-fade-in"
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -131,7 +139,7 @@ export const ForceCheckoutModal: React.FC<ForceCheckoutModalProps> = ({
               <ShieldAlert size={20} />
             </div>
             <div>
-              <h3 className="font-display font-extrabold text-base text-rose-950">
+              <h3 id="force-checkout-title" className="font-display font-extrabold text-base text-rose-950">
                 {isAdminOrOwner && isDirectOverride ? 'Direct Force Check-Out (Admin Override)' : 'Request Force Check-Out (Admin Escalation)'}
               </h3>
               <p className="text-xs text-rose-800/80 font-mono mt-0.5">

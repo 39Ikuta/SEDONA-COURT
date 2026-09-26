@@ -16,6 +16,7 @@
 // Explicitly set server timezone to Asia/Manila (Priority 2d)
 process.env.TZ = process.env.TZ || 'Asia/Manila';
 
+import { AsyncLocalStorage } from 'async_hooks';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -64,7 +65,7 @@ export function parseDatabaseUrl(url: string): PoolConfig {
     };
   }
 
-  throw new Error(`Unsupported database protocol. Only sqlite:// and file: are supported. Provided: ${url}`);
+  throw new Error(`Invalid DATABASE_URL: Unsupported database protocol. Only sqlite:// and file: are supported. Provided: ${url}`);
 }
 
 // Initialize SQLite database instance
@@ -354,6 +355,33 @@ export function initializeDatabaseSync(): void {
 
   // Ensure discount_rates table exists and sync with fixed centavos rate card
   try {
+    const discountRatesTable = sqliteDb.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='discount_rates'").get() as { sql: string } | undefined;
+    if (discountRatesTable && discountRatesTable.sql && !discountRatesTable.sql.includes('6HR')) {
+      console.log('🔄 Migrating SQLite discount_rates table to support 6HR duration...');
+      sqliteDb.exec(`
+        PRAGMA foreign_keys=off;
+        BEGIN TRANSACTION;
+        ALTER TABLE discount_rates RENAME TO _discount_rates_old;
+        CREATE TABLE discount_rates (
+          id                TEXT PRIMARY KEY,
+          discount_type     TEXT NOT NULL CHECK (discount_type IN ('SENIOR', 'DC')),
+          room_tier         TEXT NOT NULL CHECK (room_tier IN ('CLASSIC', 'PREMIUM', 'VIP')),
+          duration          TEXT NOT NULL CHECK (duration IN ('3HR', '6HR', '12HR', '24HR')),
+          amount_centavos   INTEGER NOT NULL CHECK (amount_centavos > 0),
+          description       TEXT,
+          created_at        TEXT DEFAULT (datetime('now', 'localtime')),
+          updated_at        TEXT DEFAULT (datetime('now', 'localtime')),
+          UNIQUE(discount_type, room_tier, duration)
+        );
+        INSERT OR IGNORE INTO discount_rates (id, discount_type, room_tier, duration, amount_centavos, description, created_at, updated_at)
+          SELECT id, discount_type, room_tier, duration, amount_centavos, description, created_at, updated_at FROM _discount_rates_old;
+        DROP TABLE _discount_rates_old;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+      `);
+      console.log('✅ SQLite discount_rates table migration complete.');
+    }
+
     sqliteDb.exec(`
       CREATE TABLE IF NOT EXISTS discount_rates (
         id                TEXT PRIMARY KEY,
@@ -618,16 +646,59 @@ export async function query<T = any>(sqlText: string, params?: any[]): Promise<Q
   }
 }
 
+export interface TransactionContext {
+  id: string;
+  depth: number;
+  client: TransactionClient;
+}
+
+export const txStorage = new AsyncLocalStorage<TransactionContext>();
+
 let transactionMutex = Promise.resolve();
 
 /**
  * Execute operations within an atomic SQLite transaction (Priority 2c).
- * Serialized via an async promise mutex to prevent concurrent "cannot start a transaction within a transaction"
- * errors in SQLite while strictly preserving ACID isolation.
+ * Serialized via an async promise mutex at the top level to prevent concurrent
+ * "cannot start a transaction within a transaction" errors in SQLite while strictly preserving ACID isolation.
+ * Re-entrant calls within the same async context use AsyncLocalStorage (txStorage) and SQLite SAVEPOINT nesting
+ * to eliminate mutex deadlocks and support nested transactions.
  */
 export async function withTransaction<T>(
   fn: (client: TransactionClient) => Promise<T>
 ): Promise<T> {
+  const currentStore = txStorage.getStore();
+
+  if (currentStore) {
+    // Nested / re-entrant transaction within an existing outer transaction:
+    // Do NOT re-acquire mutex (avoids deadlock); use SQLite SAVEPOINT instead.
+    const savepointDepth = currentStore.depth + 1;
+    const savepointName = `sp_${savepointDepth}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+    sqliteDb.prepare(`SAVEPOINT ${savepointName}`).run();
+
+    const nestedContext: TransactionContext = {
+      id: currentStore.id,
+      depth: savepointDepth,
+      client: currentStore.client,
+    };
+
+    return await txStorage.run(nestedContext, async () => {
+      try {
+        const result = await fn(nestedContext.client);
+        sqliteDb.prepare(`RELEASE SAVEPOINT ${savepointName}`).run();
+        return result;
+      } catch (err) {
+        try {
+          sqliteDb.prepare(`ROLLBACK TO SAVEPOINT ${savepointName}`).run();
+        } catch (rbErr) {
+          console.error(`Failed to rollback savepoint ${savepointName}:`, rbErr);
+        }
+        throw err;
+      }
+    });
+  }
+
+  // Top-level transaction: acquire mutex lock and BEGIN IMMEDIATE
   let releaseLock: () => void = () => {};
   const currentLock = new Promise<void>((resolve) => {
     releaseLock = resolve;
@@ -640,23 +711,32 @@ export async function withTransaction<T>(
 
   try {
     sqliteDb.prepare('BEGIN IMMEDIATE').run();
-    try {
-      const client: TransactionClient = {
-        query: async <R = any>(text: string, params?: any[]): Promise<QueryResult<R>> => {
-          return query<R>(text, params);
-        },
-      };
-      const result = await fn(client);
-      sqliteDb.prepare('COMMIT').run();
-      return result;
-    } catch (err) {
+    const client: TransactionClient = {
+      query: async <R = any>(text: string, params?: any[]): Promise<QueryResult<R>> => {
+        return query<R>(text, params);
+      },
+    };
+
+    const rootContext: TransactionContext = {
+      id: `tx_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      depth: 0,
+      client,
+    };
+
+    return await txStorage.run(rootContext, async () => {
       try {
-        sqliteDb.prepare('ROLLBACK').run();
-      } catch (rollbackErr) {
-        console.error('Failed to rollback SQLite transaction:', rollbackErr);
+        const result = await fn(client);
+        sqliteDb.prepare('COMMIT').run();
+        return result;
+      } catch (err) {
+        try {
+          sqliteDb.prepare('ROLLBACK').run();
+        } catch (rollbackErr) {
+          console.error('Failed to rollback SQLite transaction:', rollbackErr);
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
   } finally {
     releaseLock();
   }

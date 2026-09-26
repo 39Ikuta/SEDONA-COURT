@@ -174,6 +174,7 @@ export interface UserAccount {
   name: string;
   role: UserRole;
   accessCode?: string;  // Only present server-side for seeding; stripped from frontend bundle
+  access_code?: string;
 }
 
 export interface ScheduledBooking {

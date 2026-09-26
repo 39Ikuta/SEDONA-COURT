@@ -24,7 +24,7 @@ function rowToTask(row: any) {
 }
 
 // GET /api/tasks
-router.get('/', asyncHandler(async (_req: Request, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT * FROM handoff_tasks ORDER BY created_at ASC');
     res.json(result.rows.map(rowToTask));

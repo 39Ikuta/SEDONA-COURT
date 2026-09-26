@@ -34,19 +34,19 @@ function getShiftTimeWindow(dateObj: Date = new Date(), overrideShift?: 'DAY' | 
   let endTime: string;
 
   if (shiftType === 'DAY') {
-    startTime = `${dateStr} 06:00:00`;
-    endTime = `${dateStr} 18:00:00`;
+    startTime = `${dateStr}T06:00:00.000Z`;
+    endTime = `${dateStr}T18:00:00.000Z`;
   } else {
     // Night shift spans from 18:00 today to 06:00 tomorrow (or if currently between 00:00 and 06:00, started yesterday 18:00)
     if (!overrideShift && hour < 6) {
       const yesterdayStr = format(addDays(dateObj, -1), 'yyyy-MM-dd');
       dateStr = yesterdayStr;
-      startTime = `${yesterdayStr} 18:00:00`;
-      endTime = `${format(dateObj, 'yyyy-MM-dd')} 06:00:00`;
+      startTime = `${yesterdayStr}T18:00:00.000Z`;
+      endTime = `${format(dateObj, 'yyyy-MM-dd')}T06:00:00.000Z`;
     } else {
       const tomorrow = format(addDays(parseISO(dateStr), 1), 'yyyy-MM-dd');
-      startTime = `${dateStr} 18:00:00`;
-      endTime = `${tomorrow} 06:00:00`;
+      startTime = `${dateStr}T18:00:00.000Z`;
+      endTime = `${tomorrow}T06:00:00.000Z`;
     }
   }
 
@@ -172,8 +172,34 @@ router.post('/expenses', requireAuth, asyncHandler(async (req: Request, res: Res
 // DELETE /api/shift-settlement/expenses/:id
 router.delete('/expenses/:id', requireAuth, asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const result = await pool.query('DELETE FROM shift_expenses WHERE id = ?', [id]);
+  const operator = (req as any).operator;
+
+  const result = await pool.query('SELECT * FROM shift_expenses WHERE id = ?', [id]);
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: 'Expense not found' });
+    return;
+  }
+  const expense = result.rows[0];
+
+  if (operator.role !== 'owner' && operator.role !== 'admin' && expense.cashier_id !== operator.username) {
+    res.status(403).json({ error: 'You can only delete your own expenses' });
+    return;
+  }
+
+  await pool.query('DELETE FROM shift_expenses WHERE id = ?', [id]);
   
+  // Audit log
+  const auditId = `audit-exp-del-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+  await pool.query(
+    `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+     VALUES (?, datetime('now', 'localtime'), ?, 'EXPENSE_DELETED', ?)`,
+    [
+      auditId,
+      operator.username,
+      `Deleted shift expense: ${expense.description} (Amount: ${expense.amount})`
+    ]
+  ).catch(err => console.warn('Audit write failed:', err));
+
   res.json({ success: true, deleted: id });
 }));
 

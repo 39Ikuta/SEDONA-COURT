@@ -12,7 +12,8 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { pool } from '../db/pool';
+import { requireAdmin, requireAuth } from '../middleware/auth';
 import { weeklyReportAggregator } from '../services/weekly-report-aggregator';
 import { format, parseISO, startOfWeek, endOfWeek } from 'date-fns';
 import {
@@ -29,7 +30,7 @@ const router = Router();
  * GET /api/weekly-reports/:weekStart
  * Returns complete weekly data: shifts, expenses, gcash, cash denomination
  */
-router.get('/:weekStart', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:weekStart', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
 
@@ -180,7 +181,7 @@ router.get('/:weekStart', asyncHandler(async (req: Request, res: Response) => {
  * GET /api/weekly-reports/:weekStart/shifts
  * Get shift entries only (for direct table display)
  */
-router.get('/:weekStart/shifts', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:weekStart/shifts', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
 
@@ -218,7 +219,7 @@ router.get('/:weekStart/shifts', asyncHandler(async (req: Request, res: Response
  * GET /api/weekly-reports/:weekStart/expenses
  * Get expenses only
  */
-router.get('/:weekStart/expenses', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:weekStart/expenses', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
 
@@ -277,7 +278,7 @@ router.get('/:weekStart/expenses', asyncHandler(async (req: Request, res: Respon
  * GET /api/weekly-reports/:weekStart/gcash
  * Get GCash entries
  */
-router.get('/:weekStart/gcash', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:weekStart/gcash', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
 
@@ -310,10 +311,20 @@ router.get('/:weekStart/gcash', asyncHandler(async (req: Request, res: Response)
  * POST /api/weekly-reports/:weekStart/expenses
  * Update expenses for the week
  */
-router.post('/:weekStart/expenses', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:weekStart/expenses', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
     const expenses = req.body;
+    const operator = (req as any).operator;
+
+    if (operator.role !== 'admin' && operator.role !== 'owner') {
+      return res.status(403).json({ error: 'Only admin or owner can edit weekly expenses' });
+    }
+
+    const check = await pool.query('SELECT finalized_at FROM weekly_expenses WHERE week_start = $1', [weekStart]);
+    if (check.rows[0]?.finalized_at) {
+      return res.status(400).json({ error: 'Cannot modify a finalized report' });
+    }
 
     // Validate week start date
     const dateValidation = validateWeekStartDate(weekStart);
@@ -354,10 +365,20 @@ router.post('/:weekStart/expenses', requireAuth, asyncHandler(async (req: Reques
  * POST /api/weekly-reports/:weekStart/cash-denom
  * Save cash denomination report
  */
-router.post('/:weekStart/cash-denom', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:weekStart/cash-denom', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
     const { bills_1000_count, bills_500_count, bills_200_count, bills_100_count, bills_50_count, coins_total, received_by, counted_by } = req.body;
+    const operator = (req as any).operator;
+
+    if (operator.role !== 'admin' && operator.role !== 'owner') {
+      return res.status(403).json({ error: 'Only admin or owner can edit cash denominations' });
+    }
+
+    const check = await pool.query('SELECT finalized_at FROM weekly_expenses WHERE week_start = $1', [weekStart]);
+    if (check.rows[0]?.finalized_at) {
+      return res.status(400).json({ error: 'Cannot modify a finalized report' });
+    }
 
     // Validate week start date
     const dateValidation = validateWeekStartDate(weekStart);
@@ -419,7 +440,7 @@ router.post('/:weekStart/cash-denom', requireAuth, asyncHandler(async (req: Requ
  * POST /api/weekly-reports/:weekStart/finalize
  * Finalize the weekly report (lock for the week)
  */
-router.post('/:weekStart/finalize', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:weekStart/finalize', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { weekStart } = req.params;
     const operator = (req as any).operator;
@@ -429,8 +450,13 @@ router.post('/:weekStart/finalize', requireAuth, asyncHandler(async (req: Reques
       return res.status(403).json({ error: 'Only admin or owner can finalize reports' });
     }
 
+    const check = await pool.query('SELECT finalized_at FROM weekly_expenses WHERE week_start = $1', [weekStart]);
+    if (check.rows[0]?.finalized_at) {
+      return res.status(400).json({ error: 'Report is already finalized' });
+    }
+
     // Run finalization
-    await weeklyReportAggregator.finalizeWeekly(weekStart);
+    await weeklyReportAggregator.finalizeWeekly(weekStart, operator.username);
 
     // Get final data
     const [shifts, expenses, gcashEntries] = await Promise.all([

@@ -25,9 +25,9 @@ function rowToRevenue(row: any) {
 }
 
 // GET /api/pos-revenue — returns today's row (or 0s if not created yet)
-router.get('/', asyncHandler(async (_req: Request, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
     const result = await pool.query(
       `SELECT * FROM pos_revenue WHERE date = ?`,
       [today]
@@ -46,11 +46,15 @@ router.get('/', asyncHandler(async (_req: Request, res: Response) => {
 // POST /api/pos-revenue/add — upsert and add to today's revenue
 router.post('/add', requireAuth, asyncHandler(async (req: Request, res: Response) => {
   const { amount, category } = req.body as { amount: number; category: 'kitchen' | 'drinks' | 'miscell' };
-  if (!amount || !category) {
-    res.status(400).json({ error: 'amount and category are required' });
+  if (typeof amount !== 'number' || amount < 0) {
+    res.status(400).json({ error: 'amount must be a non-negative number' });
     return;
   }
-  const today = new Date().toISOString().split('T')[0];
+  if (!['kitchen', 'drinks', 'miscell'].includes(category)) {
+    res.status(400).json({ error: 'invalid category' });
+    return;
+  }
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); // Or local timezone
   try {
     const kAdd = category === 'kitchen' ? amount : 0;
     const dAdd = category === 'drinks' ? amount : 0;
@@ -82,7 +86,7 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
     res.status(403).json({ error: 'Only admin or owner can reset POS revenue' });
     return;
   }
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   try {
     await pool.query(
       `INSERT INTO pos_revenue (date, kitchen, drinks, miscell)

@@ -6,7 +6,7 @@
 
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/pool';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
@@ -22,7 +22,7 @@ function rowToLog(row: any) {
 }
 
 // GET /api/audit-logs
-router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
+router.get('/', requireAdmin, asyncHandler(async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       'SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 500'
@@ -44,7 +44,7 @@ router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) =
 
   try {
     await pool.query(
-      `INSERT IGNORE INTO audit_logs (id, timestamp, operator, action, details)
+      `INSERT OR IGNORE INTO audit_logs (id, timestamp, operator, action, details)
        VALUES (?, ?, ?, ?, ?)`,
       [id, timestamp, operator, log.action, log.details]
     );

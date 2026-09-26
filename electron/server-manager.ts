@@ -56,7 +56,7 @@ export async function startEmbeddedServer(): Promise<{ port: number }> {
       });
     } else {
       // In production packaged build
-      const prodServerScript = path.join(process.resourcesPath, 'server/index.js');
+      const prodServerScript = path.join(app.getAppPath(), 'dist-server', 'index.js');
       if (fs.existsSync(prodServerScript)) {
         serverProcess = fork(prodServerScript, [], {
           env: {

@@ -92,8 +92,8 @@ async function tryQuery(sql: string, params: any[] = []): Promise<any[]> {
     const res = await pool.query(sql, params);
     return res.rows;
   } catch (err) {
-    console.warn(`report-exports: query failed, continuing with empty set. SQL: ${sql}`, err);
-    return [];
+    console.error(`report-exports: query failed. SQL: ${sql}`, err);
+    throw err;
   }
 }
 
@@ -127,20 +127,20 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
     bookings,
     transfers,
   ] = await Promise.all([
-    tryQuery(`SELECT * FROM receipts WHERE date(date_time) BETWEEN ? AND ? ORDER BY date_time ASC`, [start, end]),
+    tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? ORDER BY date_time ASC`, [start, `${end}T23:59:59.999Z`]),
     tryQuery(`SELECT * FROM weekly_shift_entries WHERE date BETWEEN ? AND ? ORDER BY date ASC, shift_type ASC`, [start, end]),
     tryQuery(`SELECT * FROM weekly_expenses WHERE week_start = ?`, [weekStart]),
     tryQuery(`SELECT * FROM gcash_entries WHERE date BETWEEN ? AND ? ORDER BY date ASC`, [start, end]),
     tryQuery(`SELECT * FROM cash_denomination_report WHERE week_start = ?`, [weekStart]),
-    tryQuery(`SELECT * FROM deposit_transactions WHERE date(created_at) BETWEEN ? AND ? ORDER BY created_at ASC`, [start, end]),
-    tryQuery(`SELECT * FROM audit_logs WHERE date(timestamp) BETWEEN ? AND ? ORDER BY timestamp ASC LIMIT 2000`, [start, end]),
-    tryQuery(`SELECT * FROM inventory_events WHERE date(created_at) BETWEEN ? AND ? ORDER BY created_at ASC`, [start, end]),
+    tryQuery(`SELECT * FROM deposit_transactions WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`, [start, `${end}T23:59:59.999Z`]),
+    tryQuery(`SELECT * FROM audit_logs WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC LIMIT 2000`, [start, `${end}T23:59:59.999Z`]),
+    tryQuery(`SELECT * FROM inventory_events WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`, [start, `${end}T23:59:59.999Z`]),
     tryQuery(`SELECT * FROM menu_item_inventory ORDER BY category ASC, item_name ASC`),
     tryQuery(`SELECT id, name, price FROM billable_services WHERE is_deleted = 0`),
-    tryQuery(`SELECT * FROM force_checkout_requests WHERE date(COALESCE(requested_at, created_at)) BETWEEN ? AND ? ORDER BY requested_at ASC`, [start, end]),
+    tryQuery(`SELECT * FROM force_checkout_requests WHERE COALESCE(requested_at, created_at) >= ? AND COALESCE(requested_at, created_at) <= ? ORDER BY requested_at ASC`, [start, `${end}T23:59:59.999Z`]),
     tryQuery(`SELECT number, tier, room_type, state FROM rooms ORDER BY CAST(number AS INTEGER) ASC`),
     tryQuery(`SELECT * FROM scheduled_bookings WHERE status != 'cancelled' AND ((check_in_date BETWEEN ? AND ?) OR (check_out_date BETWEEN ? AND ?))`, [start, end, start, end]),
-    tryQuery(`SELECT * FROM room_transfers WHERE date(transferred_at) BETWEEN ? AND ? ORDER BY transferred_at ASC`, [start, end]),
+    tryQuery(`SELECT * FROM room_transfers WHERE transferred_at >= ? AND transferred_at <= ? ORDER BY transferred_at ASC`, [start, `${end}T23:59:59.999Z`]),
   ]);
 
   const priceById = new Map<string, number>();
@@ -559,7 +559,7 @@ router.get('/transactions-ledger', requireAuth, asyncHandler(async (req: Request
   const paymentMethod = String(req.query.paymentMethod || 'ALL').toUpperCase();
   const cashier = String(req.query.cashier || '').toLowerCase();
 
-  let receipts = await tryQuery(`SELECT * FROM receipts WHERE date(date_time) BETWEEN ? AND ? ORDER BY date_time ASC`, [from, to]);
+  let receipts = await tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? ORDER BY date_time ASC`, [from, `${to}T23:59:59.999Z`]);
   if (['CASH', 'GCASH', 'MIXED'].includes(paymentMethod)) {
     receipts = receipts.filter((r) => String(r.payment_method || '').toUpperCase() === paymentMethod);
   }

@@ -9,6 +9,7 @@ export interface KitchenOrderItem {
   item_id: string;
   name: string;
   quantity: number;
+  price?: number;
   special_instructions?: string;
 }
 

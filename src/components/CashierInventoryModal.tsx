@@ -33,6 +33,7 @@ import {
   downloadWeeklyInventoryCsv
 } from '../api/inventory';
 import { useToast } from './ui/Toast';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface CashierInventoryModalProps {
   isOpen: boolean;
@@ -77,6 +78,8 @@ export const CashierInventoryModal: React.FC<CashierInventoryModalProps> = ({
   const [newItemQuantity, setNewItemQuantity] = useState<number>(10);
   const [newItemPrice, setNewItemPrice] = useState<string>('');
   const [isAddingItem, setIsAddingItem] = useState(false);
+
+  useModalEscape(isOpen, onClose, !saving && !isAddingItem);
 
   const fetchInventory = async () => {
     setLoading(true);
@@ -290,7 +293,12 @@ export const CashierInventoryModal: React.FC<CashierInventoryModalProps> = ({
   const availableCount = items.length - outOfStockCount;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inventory-modal-title"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn"
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -309,7 +317,7 @@ export const CashierInventoryModal: React.FC<CashierInventoryModalProps> = ({
               <span className="p-1.5 bg-white/10 rounded-lg text-amber-300">
                 <Package size={20} />
               </span>
-              <h2 className="font-display font-black text-lg sm:text-xl tracking-wide uppercase">
+              <h2 id="inventory-modal-title" className="font-display font-black text-lg sm:text-xl tracking-wide uppercase">
                 Cashier Shift Menu &amp; Supplies Inventory
               </h2>
             </div>

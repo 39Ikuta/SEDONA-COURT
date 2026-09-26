@@ -5,6 +5,7 @@ import { ArrowRightLeft, X, AlertTriangle, Check, ShieldCheck, Sparkles, Clock, 
 import { transferRoom } from '../../api/rooms';
 import { useToast } from '../ui/Toast';
 import { formatStayDuration } from '../../utils/pricing';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 interface TransferRoomModalProps {
   isOpen: boolean;
@@ -36,6 +37,8 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
   const [customReason, setCustomReason] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  useModalEscape(isOpen, onClose, !isSubmitting);
 
   if (!isOpen) return null;
 
@@ -93,7 +96,12 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transfer-room-title"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto"
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -108,7 +116,7 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
                 <ArrowRightLeft size={20} />
               </div>
               <div>
-                <h2 className="font-display font-black text-lg text-charcoal tracking-tight">
+                <h2 id="transfer-room-title" className="font-display font-black text-lg text-charcoal tracking-tight">
                   Transfer Guest to Another Room
                 </h2>
                 <p className="text-xs text-charcoal/60 font-mono mt-0.5">

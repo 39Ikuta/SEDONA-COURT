@@ -17,15 +17,17 @@ import { SEED_USER_ACCOUNTS } from '../data/seed-accounts';
 const SALT_ROUNDS = 10;
 
 async function resetAllData() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Safety Guard: Cannot run database reset in production environment.');
+  }
+
   console.log('\n🧹 Starting complete PMS database reset...\n');
 
   await withTransaction(async (conn) => {
     // 1. Clear operational & transaction tables
     console.log('🗑️  Clearing mock transaction & operational data...');
     await conn.query('DELETE FROM scheduled_bookings');
-    await conn.query('DELETE FROM receipts');
     await conn.query('DELETE FROM kitchen_orders');
-    await conn.query('DELETE FROM audit_logs');
     await conn.query('DELETE FROM handoff_tasks');
     await conn.query('DELETE FROM pos_revenue');
     await conn.query('DELETE FROM weekly_shift_entries');

@@ -38,6 +38,7 @@ import { getTasks, addTask as apiAddTask, updateTask as apiUpdateTask, deleteTas
 import { getPOSRevenue, addPOSRevenue, resetPOSRevenue } from './api/posRevenue';
 import { kitchenOrderService } from './api/kitchen';
 import { getForceCheckoutRequests } from './api/force-checkout';
+import { socket } from './api/socket';
 
 interface SnoozedAlarmItem {
   roomNumber: string;
@@ -125,11 +126,12 @@ export default function App() {
   const hydrate = useCallback(async (isSilent = false) => {
     if (!loggedInUser || role === 'customer_display' || isCustomerDisplayView) return;
     try {
+      const isAdminOrOwner = role === 'admin' || role === 'owner';
       const [roomsData, bookingsData, servicesData, logsData, tasksData, posRev, receiptsData, forceOutRequests] = await Promise.all([
         getRooms(),
         getBookings(),
         getServices(),
-        getAuditLogs(),
+        isAdminOrOwner ? getAuditLogs() : Promise.resolve([]),
         getTasks(),
         getPOSRevenue(),
         getReceipts(),
@@ -143,7 +145,7 @@ export default function App() {
       setPendingForceCheckoutCount((forceOutRequests || []).length);
       setBookings(bookingsData); // Use API data directly, no fallback
       setBillableServices(servicesData.length > 0 ? servicesData : DEFAULT_BILLABLE_SERVICES);
-      setAuditLogs(logsData);
+      setAuditLogs(logsData || []);
       setPendingTasks(tasksData);
       setAdditionalPOSRevenue(posRev.total);
       setAdditionalPOSCategoryRevenue({ kitchen: posRev.kitchen, drinks: posRev.drinks, miscell: posRev.miscell });
@@ -166,6 +168,23 @@ export default function App() {
 
   useEffect(() => {
     hydrate(false);
+  }, [hydrate]);
+
+  useEffect(() => {
+    const handleSync = () => {
+      console.log('🔄 Socket event received, syncing data...');
+      hydrate(true);
+    };
+
+    socket.on('room:updated', handleSync);
+    socket.on('force_checkout:requested', handleSync);
+    socket.on('deposit:applied', handleSync);
+
+    return () => {
+      socket.off('room:updated', handleSync);
+      socket.off('force_checkout:requested', handleSync);
+      socket.off('deposit:applied', handleSync);
+    };
   }, [hydrate]);
 
   // Handle OS sleep/wake, browser tab refocus, and network reconnects

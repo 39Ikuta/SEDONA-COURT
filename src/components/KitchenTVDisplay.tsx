@@ -4,9 +4,9 @@
  * Displays orders organized by ROOM QUEUE (FIFO: oldest unfulfilled room order first).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { io, Socket } from 'socket.io-client';
+import { socket } from '../api/socket';
 import { RoomQueueGroup, KitchenTVDisplayData, KITCHEN_QUEUE_TIMER_MINUTES } from '../api/kitchen';
 import { Clock, Utensils, AlertTriangle, CheckCircle, ChefHat, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { playKitchenChime } from '../utils/audio';
@@ -15,23 +15,36 @@ interface KitchenTVDisplayProps {
   onClose?: () => void;
 }
 
-export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) => {
-  const [displayData, setDisplayData] = useState<KitchenTVDisplayData | null>(null);
+/**
+ * Isolated Digital Clock component to prevent parent queue re-renders every second.
+ */
+export const DigitalClock: React.FC = React.memo(() => {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [nowMs, setNowMs] = useState(Date.now());
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
-  const socketRef = useRef<Socket | null>(null);
 
-  // Update clock & live ticker every second
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-      setNowMs(Date.now());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch initial data
+  const formatTime = (time: Date) => {
+    return time.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  };
+
+  return <div className="text-2xl font-mono font-black text-white">{formatTime(currentTime)}</div>;
+});
+
+export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) => {
+  const [displayData, setDisplayData] = useState<KitchenTVDisplayData | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+
+  // Fetch data
   const fetchData = async () => {
     try {
       const res = await fetch('/api/kitchen/tv/display');
@@ -44,22 +57,23 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
     }
   };
 
+  // Initial fetch on mount
+  useEffect(() => {
+    fetchData();
+  }, []);
+
   // WebSocket connection for real-time updates
   useEffect(() => {
-    const socket = io();
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
+    const handleConnect = () => {
       setConnectionStatus('connected');
-      console.log('Kitchen TV: Connected to WebSocket server');
       fetchData();
-    });
+    };
 
-    socket.on('disconnect', () => {
+    const handleDisconnect = () => {
       setConnectionStatus('disconnected');
-    });
+    };
 
-    socket.on('kitchen:queue_updated', (newQueue: RoomQueueGroup[]) => {
+    const handleQueueUpdated = (newQueue: RoomQueueGroup[]) => {
       setDisplayData(prev => {
         if (!prev) return prev;
         const totalRooms = newQueue.length;
@@ -80,57 +94,51 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
           },
         };
       });
-    });
+    };
 
-    socket.on('kitchen:new_order', () => {
+    const handleNewOrder = () => {
       fetchData();
       playKitchenChime();
-    });
+    };
 
-    socket.on('kitchen:order_updated', () => {
+    const handleOrderUpdated = () => {
       fetchData();
-    });
+    };
 
-    socket.on('kitchen:order_completed', () => {
+    const handleOrderCompleted = () => {
       fetchData();
-    });
+    };
 
-    fetchData();
-    // High-frequency 4s auto-refresh so incoming orders appear instantly
-    const interval = setInterval(fetchData, 4000);
+    if (socket.connected) {
+      setConnectionStatus('connected');
+    }
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('kitchen:queue_updated', handleQueueUpdated);
+    socket.on('kitchen:new_order', handleNewOrder);
+    socket.on('kitchen:order_updated', handleOrderUpdated);
+    socket.on('kitchen:order_completed', handleOrderCompleted);
 
     return () => {
-      clearInterval(interval);
-      socket.disconnect();
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('kitchen:queue_updated', handleQueueUpdated);
+      socket.off('kitchen:new_order', handleNewOrder);
+      socket.off('kitchen:order_updated', handleOrderUpdated);
+      socket.off('kitchen:order_completed', handleOrderCompleted);
     };
   }, []);
 
-  const formatTime = (time: Date) => {
-    return time.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    });
-  };
+  // Restrict fallback HTTP polling to only run when disconnected from WebSocket
+  useEffect(() => {
+    if (connectionStatus !== 'disconnected') return;
 
-  const parseTimestamp = (ts: string) => {
-    if (!ts) return Date.now();
-    if (typeof ts === 'string' && ts.includes(' ') && !ts.includes('T')) {
-      ts = ts.replace(' ', 'T') + 'Z';
-    }
-    const t = new Date(ts).getTime();
-    return isNaN(t) ? Date.now() : t;
-  };
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, [connectionStatus]);
 
-  // Filter out any locally expired tickets (> queue timer window)
-  const rawQueue = displayData?.queue || [];
-  const queue = rawQueue.filter((group) => {
-    const orderedMs = parseTimestamp(group.oldest_ordered_at);
-    const elapsedSec = Math.max(0, Math.floor((nowMs - orderedMs) / 1000));
-    return elapsedSec < KITCHEN_QUEUE_TIMER_MINUTES * 60;
-  });
-
+  const queue = displayData?.queue || [];
   const summary = displayData?.summary || {
     total_rooms_in_queue: queue.length,
     total_items_pending: queue.reduce((sum, q) => sum + q.total_items_count, 0),
@@ -196,7 +204,7 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
 
           {/* Clock & Status */}
           <div className="text-right pl-4 border-l border-slate-800">
-            <div className="text-2xl font-mono font-black text-white">{formatTime(currentTime)}</div>
+            <DigitalClock />
             <div className="flex items-center justify-end gap-1.5 text-xs">
               {connectionStatus === 'connected' ? (
                 <>
@@ -230,7 +238,7 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             <AnimatePresence mode="popLayout">
               {queue.map((group) => (
-                <RoomQueueCard key={group.room_number} group={group} nowMs={nowMs} />
+                <RoomQueueCard key={group.room_number} group={group} />
               ))}
             </AnimatePresence>
           </div>
@@ -261,7 +269,7 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
           <span>&bull;</span>
           <span>FIFO Queue</span>
           <span>&bull;</span>
-          <span className="text-emerald-400 font-bold">Live Auto-Refresh (4s)</span>
+          <span className="text-emerald-400 font-bold">Live WebSocket Feed</span>
         </div>
       </footer>
     </div>
@@ -270,7 +278,6 @@ export const KitchenTVDisplay: React.FC<KitchenTVDisplayProps> = ({ onClose }) =
 
 interface RoomQueueCardProps {
   group: RoomQueueGroup;
-  nowMs: number;
 }
 
 const parseCardTimestamp = (ts: string) => {
@@ -282,7 +289,16 @@ const parseCardTimestamp = (ts: string) => {
   return isNaN(t) ? Date.now() : t;
 };
 
-const RoomQueueCard: React.FC<RoomQueueCardProps> = ({ group, nowMs }) => {
+export const RoomQueueCard: React.FC<RoomQueueCardProps> = React.memo(({ group }) => {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const orderedMs = parseCardTimestamp(group.oldest_ordered_at);
   const elapsedSec = Math.max(0, Math.floor((nowMs - orderedMs) / 1000));
   const totalSec = KITCHEN_QUEUE_TIMER_MINUTES * 60; // 30-min queue window
@@ -357,7 +373,7 @@ const RoomQueueCard: React.FC<RoomQueueCardProps> = ({ group, nowMs }) => {
       transition={{ duration: 0.25 }}
       className={`rounded-3xl border-2 ${styles.cardBg} shadow-2xl flex flex-col justify-between overflow-hidden relative`}
     >
-      {/* 15-Min Timer Countdown Progress Bar */}
+      {/* 30-Min Timer Countdown Progress Bar */}
       <div className="w-full bg-slate-950 h-2 overflow-hidden">
         <div
           className={`h-full transition-all duration-1000 ease-linear ${
@@ -388,7 +404,7 @@ const RoomQueueCard: React.FC<RoomQueueCardProps> = ({ group, nowMs }) => {
             <h2 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
               <span>{group.room_number === 'WALK-IN' ? 'Walk-In Guest' : group.room_number === '12' ? 'Room 12' : `Room ${group.room_number}`}</span>
               {group.room_number === '12' && (
-                <span className="text-xs font-mono font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-500/50 px-2 py-0.5 rounded">
+                 <span className="text-xs font-mono font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-500/50 px-2 py-0.5 rounded">
                   STAFF HOUSE
                 </span>
               )}
@@ -454,6 +470,6 @@ const RoomQueueCard: React.FC<RoomQueueCardProps> = ({ group, nowMs }) => {
       </div>
     </motion.div>
   );
-};
+});
 
 export default KitchenTVDisplay;

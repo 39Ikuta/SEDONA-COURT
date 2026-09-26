@@ -43,7 +43,7 @@ function requireOwner(req: Request, res: Response, next: () => void) {
 }
 
 // GET /api/services
-router.get('/', asyncHandler(async (_req: Request, res: Response) => {
+router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT * FROM billable_services ORDER BY type ASC, category ASC, name ASC`

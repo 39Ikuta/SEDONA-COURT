@@ -13,3 +13,8 @@ coverage/
 *.db-wal
 *.sqlite
 qa-logs/
+dist-server/
+.vault-temp/
+*.bat
+*.ps1
+update_schema.cjs

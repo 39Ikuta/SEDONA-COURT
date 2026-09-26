@@ -68,7 +68,10 @@ export async function apiFetch<T>(
         const fallbackError = isTransientGatewayError
           ? 'Backend server is temporarily reconnecting (502 Bad Gateway). Please retry in a moment.'
           : `API error ${res.status}`;
-        throw new Error(body.error || fallbackError);
+        const error = new Error(body.error || fallbackError);
+        (error as any).status = res.status;
+        (error as any).statusCode = res.status;
+        throw error;
       }
 
       return (await res.json()) as Promise<T>;

@@ -4,6 +4,7 @@ import { PrintableGatePass, GatePassData } from './PrintableGatePass';
 import { Printer, X, ArrowLeft, RefreshCw, Zap, ShieldCheck } from 'lucide-react';
 import { useToast } from './ui/Toast';
 import { printBrowserReceipt } from '../utils/printBrowserReceipt';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface GatePassModalProps {
   data: GatePassData | null;
@@ -18,6 +19,8 @@ export const GatePassModal: React.FC<GatePassModalProps> = ({
 }) => {
   const toast = useToast();
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
+
+  useModalEscape(isOpen && Boolean(data), onClose);
 
   if (!isOpen || !data) return null;
 
@@ -65,7 +68,12 @@ export const GatePassModal: React.FC<GatePassModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal/60 backdrop-blur-xs overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gate-pass-title"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal/60 backdrop-blur-xs overflow-y-auto"
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -79,7 +87,7 @@ export const GatePassModal: React.FC<GatePassModalProps> = ({
                 <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="font-display font-extrabold text-lg text-charcoal flex items-center gap-2">
+                <h3 id="gate-pass-title" className="font-display font-extrabold text-lg text-charcoal flex items-center gap-2">
                   <span>Exit Gate Pass</span>
                   <span className="text-xs font-mono font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">
                     Room {data.roomNumber}

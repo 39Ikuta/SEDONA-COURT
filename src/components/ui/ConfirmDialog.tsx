@@ -7,6 +7,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, ShieldAlert, HelpCircle, X } from 'lucide-react';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 export type ConfirmVariant = 'danger' | 'warning' | 'default';
 
@@ -64,6 +65,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const styles = VARIANT_STYLES[variant];
   const Icon = styles.icon;
 
+  useModalEscape(isOpen, onCancel);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -80,6 +83,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
           {/* Dialog */}
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
             initial={{ opacity: 0, scale: 0.92, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: 16 }}
@@ -93,7 +99,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                   <Icon size={22} className={styles.iconColor} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-display font-bold text-base text-charcoal leading-snug">
+                  <h3 id="confirm-dialog-title" className="font-display font-bold text-base text-charcoal leading-snug">
                     {title}
                   </h3>
                   <p className="text-sm text-charcoal/60 mt-1.5 leading-relaxed">

@@ -103,6 +103,81 @@ export const formatStayDuration = (rateType: string, customHours?: number): stri
 };
 
 /**
+ * Extracts date parts in Asia/Manila timezone (UTC+8)
+ */
+export function getManilaDateParts(dateInput?: string | Date | null): {
+  year: number;
+  month: number;
+  day: number;
+  dayOfWeek: number;
+  hour: number;
+  minute: number;
+} {
+  let date: Date;
+  if (!dateInput) {
+    date = new Date();
+  } else if (dateInput instanceof Date) {
+    date = isNaN(dateInput.getTime()) ? new Date() : dateInput;
+  } else {
+    date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      date = new Date();
+    }
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  });
+
+  const parts = formatter.formatToParts(date);
+  let year = date.getFullYear();
+  let month = date.getMonth() + 1;
+  let day = date.getDate();
+  let dayOfWeek = date.getDay();
+  let hour = date.getHours();
+  let minute = date.getMinutes();
+
+  const WEEKDAY_MAP: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  for (const part of parts) {
+    if (part.type === 'year') year = parseInt(part.value, 10);
+    else if (part.type === 'month') month = parseInt(part.value, 10);
+    else if (part.type === 'day') day = parseInt(part.value, 10);
+    else if (part.type === 'weekday') dayOfWeek = WEEKDAY_MAP[part.value] ?? dayOfWeek;
+    else if (part.type === 'hour') hour = parseInt(part.value, 10);
+    else if (part.type === 'minute') minute = parseInt(part.value, 10);
+  }
+
+  if (hour === 24) hour = 0;
+
+  return { year, month, day, dayOfWeek, hour, minute };
+}
+
+/**
+ * Validates whether the check-in time qualifies for the Midnight Promo rate.
+ * Promo stays are strictly restricted to check-ins between 8:00 PM (20:00) and 6:00 AM (06:00) Manila time.
+ */
+export function isMidnightPromoAllowed(checkInDate: Date | string = new Date()): boolean {
+  const { hour, minute } = getManilaDateParts(checkInDate);
+  return hour >= 20 || hour < 6 || (hour === 6 && minute === 0);
+}
+
+/**
  * Calculates stay rate from service configuration and check-in date
  */
 export function calculateStayRate(
@@ -117,19 +192,15 @@ export function calculateStayRate(
   const seasonalStart = service.seasonalStart ?? service.seasonal_start;
   const seasonalEnd = service.seasonalEnd ?? service.seasonal_end;
 
-  const checkInDate = checkInDateStr ? new Date(checkInDateStr) : new Date();
-  const dayOfWeek = checkInDate.getDay(); // 0 is Sunday, 5 is Friday, 6 is Saturday
+  const { month, day, dayOfWeek } = getManilaDateParts(checkInDateStr);
 
   // Seasonal override check
   if (seasonalOverride !== undefined && seasonalOverride !== null && seasonalStart && seasonalEnd) {
-    const month = checkInDate.getMonth() + 1; // 1-indexed
-    const date = checkInDate.getDate();
-
     const [startMonth, startDay] = seasonalStart.split('-').map(Number);
     const [endMonth, endDay] = seasonalEnd.split('-').map(Number);
 
     if (!isNaN(startMonth) && !isNaN(startDay) && !isNaN(endMonth) && !isNaN(endDay)) {
-      const currentDateVal = month * 100 + date;
+      const currentDateVal = month * 100 + day;
       const startDateVal = startMonth * 100 + startDay;
       const endDateVal = endMonth * 100 + endDay;
 
@@ -142,7 +213,9 @@ export function calculateStayRate(
       }
 
       if (isSeasonal) {
-        return Number(seasonalOverride);
+        const val = Number(seasonalOverride);
+        if (isNaN(val)) throw Object.assign(new Error(`Invalid seasonal override value: ${seasonalOverride}`), { statusCode: 400 });
+        return val;
       }
     }
   }
@@ -150,16 +223,22 @@ export function calculateStayRate(
   // Weekend override check (Friday, Saturday, Sunday)
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
   if (isWeekend && weekendOverride !== undefined && weekendOverride !== null) {
-    return Number(weekendOverride);
+    const val = Number(weekendOverride);
+    if (isNaN(val)) throw Object.assign(new Error(`Invalid weekend override value: ${weekendOverride}`), { statusCode: 400 });
+    return val;
   }
 
   // Weekday override check (Monday, Tuesday, Wednesday, Thursday)
   const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4;
   if (isWeekday && weekdayOverride !== undefined && weekdayOverride !== null) {
-    return Number(weekdayOverride);
+    const val = Number(weekdayOverride);
+    if (isNaN(val)) throw Object.assign(new Error(`Invalid weekday override value: ${weekdayOverride}`), { statusCode: 400 });
+    return val;
   }
 
-  return Number(service.price || 0);
+  const basePrice = Number(service.price || 0);
+  if (isNaN(basePrice)) throw Object.assign(new Error(`Invalid base price for service: ${service.price}`), { statusCode: 400 });
+  return basePrice;
 }
 
 /**

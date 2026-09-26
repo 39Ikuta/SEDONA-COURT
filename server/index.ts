@@ -143,7 +143,7 @@ app.use(cors({
       return callback(null, true);
     }
 
-    return callback(null, true); // Permissive for development tunnels
+    return callback(new Error('Not allowed by CORS')); // Strict CORS
   },
   credentials: true,
 }));

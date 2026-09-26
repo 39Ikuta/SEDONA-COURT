@@ -5,6 +5,7 @@ import { Printer, X, Check, ArrowLeft, CornerDownRight, RefreshCw, Zap, DollarSi
 import { formatStayDuration } from '../utils/pricing';
 import { useToast } from './ui/Toast';
 import { printBrowserReceipt } from '../utils/printBrowserReceipt';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface PrePrintBillModalProps {
   receipt: Receipt | null;
@@ -19,6 +20,8 @@ export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
 }) => {
   const toast = useToast();
   const [isPrintingReceipt, setIsPrintingReceipt] = useState<boolean>(false);
+
+  useModalEscape(isOpen && Boolean(receipt), onClose);
 
   if (!isOpen || !receipt) return null;
 
@@ -103,7 +106,12 @@ export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pre-print-title"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto"
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -132,7 +140,7 @@ export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
               </div>
 
               <div>
-                <h2 className="font-display font-extrabold text-lg text-charcoal tracking-tight leading-tight">
+                <h2 id="pre-print-title" className="font-display font-extrabold text-lg text-charcoal tracking-tight leading-tight">
                   Transaction Finalized
                 </h2>
                 <p className="text-xs text-charcoal/60 mt-1 leading-relaxed">

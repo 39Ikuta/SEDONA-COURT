@@ -9,11 +9,13 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db/pool';
-import { signJwt } from '../utils/jwt';
+import { signJwt, revokeJwt } from '../utils/jwt';
 import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
+
+const loginAttempts = new Map<string, { count: number; timestamp: number }>();
 
 // POST /api/auth/login
 router.post('/login', asyncHandler(async (req: Request, res: Response) => {
@@ -22,21 +24,39 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: 'username and accessCode are required' });
     return;
   }
+
+  const now = Date.now();
+  const attempt = loginAttempts.get(username) || { count: 0, timestamp: now };
+  if (now - attempt.timestamp > 15 * 60 * 1000) {
+    attempt.count = 0;
+    attempt.timestamp = now;
+  }
+  if (attempt.count >= 5) {
+    res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
+    return;
+  }
+
   try {
     const result = await pool.query(
       'SELECT id, username, name, role, access_code_hash FROM users WHERE LOWER(username) = LOWER($1)',
       [username]
     );
     if (result.rows.length === 0) {
+      attempt.count += 1;
+      loginAttempts.set(username, attempt);
       res.status(401).json({ error: 'Invalid username or access code' });
       return;
     }
     const user = result.rows[0];
     const valid = await bcrypt.compare(accessCode, user.access_code_hash);
     if (!valid) {
+      attempt.count += 1;
+      loginAttempts.set(username, attempt);
       res.status(401).json({ error: 'Invalid username or access code' });
       return;
     }
+
+    loginAttempts.delete(username);
 
     const token = signJwt({
       id: user.id,
@@ -82,7 +102,14 @@ router.post('/refresh', requireAuth, (req: Request, res: Response) => {
 });
 
 // POST /api/auth/logout — stateless; client clears its own operator state
-router.post('/logout', (_req: Request, res: Response) => {
+router.post('/logout', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization || req.headers.Authorization as string;
+  if (authHeader) {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      revokeJwt(match[1].trim());
+    }
+  }
   res.json({ success: true });
 });
 

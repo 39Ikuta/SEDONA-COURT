@@ -37,13 +37,18 @@ export const Login: React.FC<LoginProps> = ({ onLogin, onOpenLaunchAnimation, on
     } catch (err: any) {
       // Fallback check against in-memory user accounts if API error
       const matchedAccount = USER_ACCOUNTS.find(
-        (acc) =>
-          acc.username.trim().toLowerCase() === trimmedUsername.toLowerCase() &&
-          acc.accessCode.trim() === trimmedPassword
+        (acc) => {
+          const code = (acc.accessCode || acc.access_code || '').trim();
+          return (
+            acc.username.trim().toLowerCase() === trimmedUsername.toLowerCase() &&
+            code.length > 0 &&
+            code === trimmedPassword
+          );
+        }
       );
 
       if (matchedAccount) {
-        onLogin(matchedAccount.username);
+        onLogin(matchedAccount.username, matchedAccount.role);
       } else {
         setError(err.message || 'Invalid operator credentials. Access Denied.');
       }

@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { updateSocketAuth } from './socket';
 
 export interface LoginResult {
   token: string;
@@ -15,6 +16,7 @@ export async function login(username: string, accessCode: string): Promise<Login
   if (result.token) {
     sessionStorage.setItem('scti_token', result.token);
     sessionStorage.setItem('scti_operator_role', result.role);
+    updateSocketAuth(result.token);
   }
   return result;
 }
@@ -26,6 +28,6 @@ export async function logout(): Promise<void> {
     sessionStorage.removeItem('scti_token');
     sessionStorage.removeItem('scti_operator');
     sessionStorage.removeItem('scti_operator_role');
+    updateSocketAuth('');
   }
 }
-

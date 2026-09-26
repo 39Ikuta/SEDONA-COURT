@@ -44,7 +44,7 @@ router.get('/orders', requireAuth, asyncHandler(async (_req: Request, res: Respo
  * GET /api/kitchen/tv/display
  * TV display endpoint: room-based queue + summary statistics
  */
-router.get('/tv/display', asyncHandler(async (_req: Request, res: Response) => {
+router.get('/tv/display', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
   try {
     const queue = await kitchenOrderService.getRoomQueue();
     const allActiveOrders = await kitchenOrderService.getActiveOrders();
@@ -78,7 +78,7 @@ router.get('/tv/display', asyncHandler(async (_req: Request, res: Response) => {
  * GET /api/kitchen/orders/:id
  * Get specific order details
  */
-router.get('/orders/:id', asyncHandler(async (req: Request, res: Response) => {
+router.get('/orders/:id', requireAuth, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const order = await kitchenOrderService.getOrderById(parseInt(id, 10));
@@ -275,7 +275,7 @@ router.delete('/orders/:id', requireAuth, asyncHandler(async (req: Request, res:
  * GET /api/kitchen/orders/room/:roomNumber
  * Get orders for specific room
  */
-router.get('/orders/room/:roomNumber', asyncHandler(async (req: Request, res: Response) => {
+router.get('/orders/room/:roomNumber', requireAuth, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { roomNumber } = req.params;
     const orders = await kitchenOrderService.getOrdersByRoom(roomNumber);
@@ -290,7 +290,7 @@ router.get('/orders/room/:roomNumber', asyncHandler(async (req: Request, res: Re
  * GET /api/kitchen/orders/by-receipt/:receiptNo
  * Get orders for specific receipt
  */
-router.get('/orders/by-receipt/:receiptNo', asyncHandler(async (req: Request, res: Response) => {
+router.get('/orders/by-receipt/:receiptNo', requireAuth, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { receiptNo } = req.params;
     const orders = await kitchenOrderService.getOrdersByReceipt(receiptNo);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { io, Socket } from 'socket.io-client';
+import { socket } from '../api/socket';
 import {
   RoomQueueGroup,
   KitchenOrder,
@@ -42,7 +42,6 @@ export const KitchenStaffView: React.FC<KitchenStaffViewProps> = ({ loggedInUser
   const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected'>('disconnected');
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [nowMs, setNowMs] = useState(Date.now());
-  const socketRef = useRef<Socket | null>(null);
 
   const fetchQueue = async () => {
     try {
@@ -72,42 +71,57 @@ export const KitchenStaffView: React.FC<KitchenStaffViewProps> = ({ loggedInUser
   useEffect(() => {
     fetchQueue();
 
-    const socket = io();
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
+    const handleConnect = () => {
       setWsStatus('connected');
       socket.emit('kitchen:join');
-    });
+    };
 
-    socket.on('disconnect', () => {
+    const handleDisconnect = () => {
       setWsStatus('disconnected');
-    });
+    };
 
-    socket.on('kitchen:queue_updated', (updatedQueue: RoomQueueGroup[]) => {
+    const handleQueueUpdated = (updatedQueue: RoomQueueGroup[]) => {
       setQueue(updatedQueue);
       setLastRefresh(new Date());
-    });
+    };
 
-    socket.on('kitchen:new_order', () => {
+    const handleNewOrder = () => {
       fetchQueue();
       playKitchenChime();
-    });
+    };
 
-    socket.on('kitchen:order_updated', () => {
+    const handleOrderUpdated = () => {
       fetchQueue();
-    });
+    };
 
-    socket.on('kitchen:order_completed', () => {
+    const handleOrderCompleted = () => {
       fetchQueue();
-    });
+    };
+
+    if (socket.connected) {
+      setWsStatus('connected');
+      socket.emit('kitchen:join');
+    }
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('kitchen:queue_updated', handleQueueUpdated);
+    socket.on('kitchen:new_order', handleNewOrder);
+    socket.on('kitchen:order_updated', handleOrderUpdated);
+    socket.on('kitchen:order_completed', handleOrderCompleted);
 
     // High-frequency 4s auto-refresh so all newly input room orders appear immediately
     const interval = setInterval(fetchQueue, 4000);
 
     return () => {
       clearInterval(interval);
-      socket.disconnect();
+      socket.emit('kitchen:leave');
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('kitchen:queue_updated', handleQueueUpdated);
+      socket.off('kitchen:new_order', handleNewOrder);
+      socket.off('kitchen:order_updated', handleOrderUpdated);
+      socket.off('kitchen:order_completed', handleOrderCompleted);
     };
   }, []);
 

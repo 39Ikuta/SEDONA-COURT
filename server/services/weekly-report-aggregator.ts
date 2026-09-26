@@ -65,7 +65,7 @@ export class WeeklyReportAggregator {
     receipt.items.forEach((item) => {
       const description = item.description.toLowerCase();
 
-      if (description.includes('room') || description.includes('stay') || description.includes('accommodation')) {
+      if (description.includes('room') || description.includes('stay') || description.includes('accommodation') || description.includes('rent')) {
         roomBill += item.amount;
       } else if (description.includes('kitchen') || description.includes('meal') || description.includes('food')) {
         kitchenBill += item.amount;
@@ -332,42 +332,22 @@ export class WeeklyReportAggregator {
   /**
    * Called on Sunday night - create/finalize weekly summary
    */
-  async finalizeWeekly(weekStart: string): Promise<void> {
+  async finalizeWeekly(weekStart: string, operatorUsername: string): Promise<void> {
     try {
       const start = parseISO(weekStart);
       const end = endOfWeek(start, { weekStartsOn: 1 });
       const startStr = format(start, 'yyyy-MM-dd');
       const endStr = format(end, 'yyyy-MM-dd');
 
-      // Get all shift entries for the week
-      const shifts = await pool.query(
-        `SELECT * FROM weekly_shift_entries
-         WHERE date >= $1 AND date <= $2
-         ORDER BY date, shift_type`,
-        [startStr, endStr]
+      await pool.query(
+        `UPDATE weekly_expenses 
+         SET finalized_at = datetime('now', 'localtime'), finalized_by = $1
+         WHERE week_start = $2`,
+        [operatorUsername, startStr]
       );
 
-      // Get GCash total for week
-      const gcashResult = await pool.query(
-        `SELECT SUM(amount) as total FROM gcash_entries
-         WHERE date >= $1 AND date <= $2`,
-        [startStr, endStr]
-      );
-
-      const gcashTotal = parseFloat(gcashResult.rows[0]?.total || 0);
-
-      // Calculate expense totals
-      const expensesResult = await pool.query(
-        `SELECT * FROM weekly_expenses WHERE week_start = $1`,
-        [startStr]
-      );
-
-      const expenses = expensesResult.rows[0] || {};
-
-      console.log(`✅ Weekly summary finalized for ${startStr} to ${endStr}`);
-      console.log(`   Total Shifts: ${shifts.rows.length}`);
-      console.log(`   GCash Total: ₱${gcashTotal.toLocaleString()}`);
-      console.log(`   Total Expenses: ₱${(expenses.total_expenses || 0).toLocaleString()}`);
+      // Log it
+      console.log(`✅ Weekly summary finalized for ${startStr} by ${operatorUsername}`);
     } catch (err) {
       console.error('Error in finalizeWeekly:', err);
       throw err;

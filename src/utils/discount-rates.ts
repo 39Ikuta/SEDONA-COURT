@@ -6,7 +6,7 @@
 
 export type DiscountType = 'SENIOR' | 'DC';
 export type RoomTier = 'CLASSIC' | 'PREMIUM' | 'VIP';
-export type StayDuration = '3HR' | '12HR' | '24HR';
+export type StayDuration = '3HR' | '6HR' | '12HR' | '24HR';
 
 export interface DiscountRateEntry {
   discountType: DiscountType;
@@ -29,10 +29,16 @@ export const DISCOUNT_RATES_DATA: DiscountRateEntry[] = [
   { discountType: 'DC', roomTier: 'VIP', duration: '24HR', amountCentavos: 11500, amountPesos: 115.0 },
 
   // Senior Citizen / PWD (SENIOR)
+  { discountType: 'SENIOR', roomTier: 'CLASSIC', duration: '3HR', amountCentavos: 7900, amountPesos: 79.0 },
+  { discountType: 'SENIOR', roomTier: 'CLASSIC', duration: '6HR', amountCentavos: 15800, amountPesos: 158.0 },
   { discountType: 'SENIOR', roomTier: 'CLASSIC', duration: '12HR', amountCentavos: 19500, amountPesos: 195.0 },
   { discountType: 'SENIOR', roomTier: 'CLASSIC', duration: '24HR', amountCentavos: 34000, amountPesos: 340.0 },
+  { discountType: 'SENIOR', roomTier: 'PREMIUM', duration: '3HR', amountCentavos: 9900, amountPesos: 99.0 },
+  { discountType: 'SENIOR', roomTier: 'PREMIUM', duration: '6HR', amountCentavos: 17800, amountPesos: 178.0 },
   { discountType: 'SENIOR', roomTier: 'PREMIUM', duration: '12HR', amountCentavos: 21500, amountPesos: 215.0 },
   { discountType: 'SENIOR', roomTier: 'PREMIUM', duration: '24HR', amountCentavos: 37500, amountPesos: 375.0 },
+  { discountType: 'SENIOR', roomTier: 'VIP', duration: '3HR', amountCentavos: 13900, amountPesos: 139.0 },
+  { discountType: 'SENIOR', roomTier: 'VIP', duration: '6HR', amountCentavos: 21800, amountPesos: 218.0 },
   { discountType: 'SENIOR', roomTier: 'VIP', duration: '12HR', amountCentavos: 25500, amountPesos: 255.0 },
   { discountType: 'SENIOR', roomTier: 'VIP', duration: '24HR', amountCentavos: 46000, amountPesos: 460.0 },
 ];
@@ -80,6 +86,9 @@ export function normalizeStayDuration(duration?: string | null): StayDuration | 
 
   if (s === '3H' || s === '3HR' || s === '3' || s === '3S' || s === '3HRS' || s.startsWith('3H') || s.startsWith('3 HR') || s.includes('3 HOUR')) {
     return '3HR';
+  }
+  if (s === '6H' || s === '6HR' || s === '6' || s === '6S' || s === '6HRS' || s.startsWith('6H') || s.startsWith('6 HR') || s.includes('6 HOUR')) {
+    return '6HR';
   }
   if (s === '12H' || s === '12HR' || s === '12' || s === '12S' || s === '12HRS' || s.startsWith('12H') || s.startsWith('12 HR') || s.includes('12 HOUR')) {
     return '12HR';

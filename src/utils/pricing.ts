@@ -1,23 +1,93 @@
 import { BillableService, POSItem, Room } from '../types';
 
-export const calculateStayRate = (service: BillableService, checkInDateStr?: string): number => {
+/**
+ * Extracts date parts in Asia/Manila timezone (UTC+8)
+ */
+export function getManilaDateParts(dateInput?: string | Date | null): {
+  year: number;
+  month: number;
+  day: number;
+  dayOfWeek: number;
+  hour: number;
+  minute: number;
+} {
+  let date: Date;
+  if (!dateInput) {
+    date = new Date();
+  } else if (dateInput instanceof Date) {
+    date = isNaN(dateInput.getTime()) ? new Date() : dateInput;
+  } else {
+    date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      date = new Date();
+    }
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  });
+
+  const parts = formatter.formatToParts(date);
+  let year = date.getFullYear();
+  let month = date.getMonth() + 1;
+  let day = date.getDate();
+  let dayOfWeek = date.getDay();
+  let hour = date.getHours();
+  let minute = date.getMinutes();
+
+  const WEEKDAY_MAP: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  for (const part of parts) {
+    if (part.type === 'year') year = parseInt(part.value, 10);
+    else if (part.type === 'month') month = parseInt(part.value, 10);
+    else if (part.type === 'day') day = parseInt(part.value, 10);
+    else if (part.type === 'weekday') dayOfWeek = WEEKDAY_MAP[part.value] ?? dayOfWeek;
+    else if (part.type === 'hour') hour = parseInt(part.value, 10);
+    else if (part.type === 'minute') minute = parseInt(part.value, 10);
+  }
+
+  if (hour === 24) hour = 0;
+
+  return { year, month, day, dayOfWeek, hour, minute };
+}
+
+/**
+ * Validates whether the check-in time qualifies for the Midnight Promo rate.
+ * Promo stays are strictly restricted to check-ins between 8:00 PM (20:00) and 6:00 AM (06:00) Manila time.
+ */
+export function isMidnightPromoAllowed(checkInDate: Date | string = new Date()): boolean {
+  const { hour, minute } = getManilaDateParts(checkInDate);
+  return hour >= 20 || hour < 6 || (hour === 6 && minute === 0);
+}
+
+export const calculateStayRate = (service: BillableService, checkInDateStr?: string | Date | null): number => {
   if (!service) return 0;
   
-  // Parse date or use current date
-  const checkInDate = checkInDateStr ? new Date(checkInDateStr) : new Date();
-  const dayOfWeek = checkInDate.getDay(); // 0 is Sunday, 5 is Friday, 6 is Saturday
+  const { month, day, dayOfWeek } = getManilaDateParts(checkInDateStr);
   
   // Seasonal override check
   if (service.seasonalOverride !== undefined && service.seasonalStart && service.seasonalEnd) {
-    const month = checkInDate.getMonth() + 1; // 1-indexed
-    const date = checkInDate.getDate();
-    
     // MM-DD format parse (e.g. "12-15")
     const [startMonth, startDay] = service.seasonalStart.split('-').map(Number);
     const [endMonth, endDay] = service.seasonalEnd.split('-').map(Number);
     
     if (!isNaN(startMonth) && !isNaN(startDay) && !isNaN(endMonth) && !isNaN(endDay)) {
-      const currentDateVal = month * 100 + date;
+      const currentDateVal = month * 100 + day;
       const startDateVal = startMonth * 100 + startDay;
       const endDateVal = endMonth * 100 + endDay;
       

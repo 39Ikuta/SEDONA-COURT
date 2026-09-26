@@ -10,6 +10,7 @@ export interface KitchenOrderItem {
   item_id: string;
   name: string;
   quantity: number;
+  price?: number;
   special_instructions?: string;
 }
 
@@ -134,6 +135,21 @@ export class KitchenOrderService {
       const nowIso = new Date().toISOString();
       const operator = operatorUsername || data.cashier_name || 'cashier';
 
+      // Validate quantities and recalculate total_amount server-side
+      let calculatedTotal = 0;
+      for (const item of data.items) {
+        if (!item.quantity || item.quantity <= 0) {
+          const err: any = new Error(`Invalid quantity for item ${item.name}`);
+          err.statusCode = 400;
+          throw err;
+        }
+        // Fetch current price from billable_services
+        const priceRes = await conn.query('SELECT price FROM billable_services WHERE id = ?', [item.item_id]);
+        const price = priceRes.rows[0]?.price || item.price; // fallback to item.price if not found
+        calculatedTotal += price * item.quantity;
+      }
+      data.total_amount = calculatedTotal;
+
       // 1. Atomically check and decrement inventory stock
       await inventoryService.atomicDecrementStock(data.items, orderNumber, operator, conn);
 
@@ -246,8 +262,7 @@ export class KitchenOrderService {
     const TIMER_DURATION_MINUTES = 30;
     const TIMER_DURATION_SECONDS = TIMER_DURATION_MINUTES * 60;
 
-    // Auto-clean orders older than 30 minutes
-    await this.cleanupStaleOrders(TIMER_DURATION_MINUTES);
+    // Removed auto-cleanup to prevent mutation on read
 
     const activeOrders = await this.getActiveOrders();
     const nowMs = Date.now();

@@ -48,9 +48,9 @@ router.get('/financial-summary', asyncHandler(async (req: Request, res: Response
     // 1. Query receipts within the date range
     const receiptsResult = await pool.query(
       `SELECT * FROM receipts 
-       WHERE DATE(date_time) >= ? AND DATE(date_time) <= ?
+       WHERE date_time >= ? AND date_time <= ?
        ORDER BY date_time ASC`,
-      [startDate, endDate]
+      [startDate, `${endDate}T23:59:59.999Z`]
     );
     const receipts = receiptsResult.rows;
 

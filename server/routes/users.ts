@@ -12,7 +12,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db/pool';
-import { requireAuth, requireOwner } from '../middleware/auth';
+import { requireAdmin, requireOwner } from '../middleware/auth';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
@@ -24,7 +24,7 @@ const VALID_ROLES = ['kitchen', 'cashier', 'admin', 'owner', 'customer_display']
  * Lists all registered user accounts with sanitized properties.
  * Role check: Owner and Admin only.
  */
-router.get('/', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const operator = (req as any).operator;
   if (operator.role !== 'owner' && operator.role !== 'admin') {
     res.status(403).json({ error: 'Forbidden: Only administrators and owners can view user accounts' });
@@ -78,8 +78,8 @@ router.post('/', requireOwner, asyncHandler(async (req: Request, res: Response) 
     return;
   }
 
-  if (!accessCode || typeof accessCode !== 'string' || accessCode.trim().length < 4) {
-    res.status(400).json({ error: 'Password / access code must be at least 4 characters long' });
+  if (!accessCode || typeof accessCode !== 'string' || accessCode.trim().length < 8) {
+    res.status(400).json({ error: 'Password / access code must be at least 8 characters long' });
     return;
   }
   const cleanCode = accessCode.trim();
@@ -205,8 +205,8 @@ router.put('/:identifier/password', requireOwner, asyncHandler(async (req: Reque
   const { identifier } = req.params;
   const { accessCode } = req.body || {};
 
-  if (!accessCode || typeof accessCode !== 'string' || accessCode.trim().length < 4) {
-    res.status(400).json({ error: 'New password must be at least 4 characters long' });
+  if (!accessCode || typeof accessCode !== 'string' || accessCode.trim().length < 8) {
+    res.status(400).json({ error: 'New password must be at least 8 characters long' });
     return;
   }
   const cleanCode = accessCode.trim();

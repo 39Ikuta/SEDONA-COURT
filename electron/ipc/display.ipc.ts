@@ -69,7 +69,7 @@ export function registerDisplayIpc(
         title: 'Sedona Court - Customer Display',
         autoHideMenuBar: true,
         webPreferences: {
-          preload: path.join(__dirname, 'preload.js'),
+          preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,

@@ -271,6 +271,73 @@ export async function requireInventoryStaff(req: Request, res: Response, next: N
   }
 }
 
+export const ADMIN_STAFF_ROLES = ['admin', 'owner'] as const;
+export type AdminStaffRole = typeof ADMIN_STAFF_ROLES[number];
+
+/**
+ * Strict role-gated authentication middleware for Admin operations.
+ * Allows ONLY 'admin' and 'owner' roles.
+ * Denies 'cashier', 'kitchen', 'customer_display' (HTTP 403), and missing/invalid token (HTTP 401).
+ * Attaches server-derived operator onto req.operator.
+ */
+export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const authHeader = req.headers.authorization || (req.headers.Authorization as string);
+  if (!authHeader || typeof authHeader !== 'string') {
+    res.status(401).json({ error: 'Missing or invalid Authorization header' });
+    return;
+  }
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    res.status(401).json({ error: 'Authorization header format must be Bearer <token>' });
+    return;
+  }
+
+  const token = match[1].trim();
+  const verifyResult = verifyJwt(token);
+
+  if (!verifyResult.valid || !verifyResult.payload) {
+    res.status(401).json({ error: verifyResult.error || 'Invalid or expired session token' });
+    return;
+  }
+
+  try {
+    const { username } = verifyResult.payload;
+    const result = await pool.query(
+      'SELECT id, username, name, role FROM users WHERE LOWER(username) = LOWER(?)',
+      [username]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(401).json({ error: 'Unknown operator' });
+      return;
+    }
+
+    const dbUser = result.rows[0];
+
+    if (dbUser.role === 'customer_display') {
+      res.status(403).json({ error: 'Access denied: customer_display role is not permitted on admin operations' });
+      return;
+    }
+
+    if (!ADMIN_STAFF_ROLES.includes(dbUser.role as any)) {
+      res.status(403).json({ error: `Access denied: role '${dbUser.role}' is not authorized to perform admin operations` });
+      return;
+    }
+
+    (req as any).operator = {
+      id: dbUser.id,
+      username: dbUser.username,
+      name: dbUser.name,
+      role: dbUser.role,
+    };
+    next();
+  } catch (err) {
+    console.error('requireAdmin database error:', err);
+    res.status(500).json({ error: 'Auth check failed' });
+  }
+}
+
 /**
  * Strict role-gated authentication middleware for Owner-only operations.
  * Allows ONLY the 'owner' role.

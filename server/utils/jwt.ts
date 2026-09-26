@@ -79,12 +79,21 @@ export interface VerifyResult {
   error?: string;
 }
 
+const revokedTokens = new Set<string>();
+
+export function revokeJwt(token: string) {
+  revokedTokens.add(token);
+}
+
 /**
  * Verify and decode a JWT token. Checks HMAC signature and expiration.
  */
 export function verifyJwt(token: string): VerifyResult {
   if (!token || typeof token !== 'string') {
     return { valid: false, error: 'Token is required' };
+  }
+  if (revokedTokens.has(token)) {
+    return { valid: false, error: 'Token has been revoked' };
   }
 
   const parts = token.split('.');

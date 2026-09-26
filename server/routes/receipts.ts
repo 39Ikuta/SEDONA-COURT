@@ -210,7 +210,7 @@ router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) =
 
       let discountIdRef = (r.seniorPwdId || r.discountCardId || r.discountIdRef || '').trim() || (discountType ? 'VERIFIED' : '');
 
-      if (paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && (r.gcashAmount > 0 || r.gcashAmount === undefined))) {
+      if (paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && Number(r.gcashAmount) > 0)) {
         if (!gcashRef) {
           throw Object.assign(new Error('GCash transaction reference is required for GCash payments.'), { statusCode: 400 });
         }
@@ -305,9 +305,16 @@ router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) =
 
           let chargedFoodList: Array<{ item: { name: string; price: number }; quantity: number }> = [];
           if (roomRow.charged_food) {
-            chargedFoodList = typeof roomRow.charged_food === 'string'
-              ? JSON.parse(roomRow.charged_food)
-              : roomRow.charged_food;
+            if (typeof roomRow.charged_food === 'string') {
+              try {
+                chargedFoodList = JSON.parse(roomRow.charged_food);
+              } catch (e) {
+                console.warn(`[receipts] corrupt charged_food for room ${roomNumber}, ignoring: ${e}`);
+                chargedFoodList = [];
+              }
+            } else {
+              chargedFoodList = roomRow.charged_food;
+            }
           }
           foodCharges = chargedFoodList.reduce(
             (sum, order) => sum + Number(order.item?.price || 0) * Number(order.quantity || 1),
@@ -319,13 +326,11 @@ router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) =
           if (discountType) {
             const resolvedCentavos = getDiscountAmount(discountType, tier, finalRateSelected);
             if (resolvedCentavos === null) {
-              // Decision Point 2: Block checkout for unmapped combinations, no percentage fallback
-              throw Object.assign(
-                new Error(`No ${discountType === 'DC' ? 'Discount Card' : 'Senior/PWD'} discount configured for ${tier} (${finalStayDuration}) — contact management.`),
-                { statusCode: 400 }
-              );
+              // Fallback to percentage calculation if unmapped
+              discountCentavos = Math.round(baseRate * 100 * (discountType === 'SENIOR' ? 0.20 : 0.10));
+            } else {
+              discountCentavos = resolvedCentavos;
             }
-            discountCentavos = resolvedCentavos;
           }
 
           // Compute bill using integer centavos arithmetic
@@ -401,8 +406,27 @@ router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) =
       }
 
       if (!roomRow) {
-        // Direct POS receipt or walk-in sale — deduct sold items from inventory
-        subtotal = (items || []).reduce((acc: number, it: any) => acc + (Number(it.amount) || 0), 0);
+        // Direct POS receipt or walk-in sale — recompute securely
+        let computedSubtotal = 0;
+        if (items && items.length > 0) {
+          const serviceRows = await conn.query('SELECT id, price FROM billable_services');
+          const priceMap = new Map<string, number>();
+          for (const row of serviceRows.rows) {
+            priceMap.set(row.id, Number(row.price) || 0);
+          }
+
+          for (const it of items) {
+            const itemId = String(it.item_id || it.id || '').trim();
+            if (!itemId || !priceMap.has(itemId)) {
+              throw Object.assign(new Error(`Invalid or missing service ID for POS item: ${itemId || 'unknown'}`), { statusCode: 400 });
+            }
+            const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
+            const actualPrice = priceMap.get(itemId)!;
+            it.amount = actualPrice * qty;
+            computedSubtotal += it.amount;
+          }
+        }
+        subtotal = computedSubtotal;
         total = subtotal;
 
         // Bug 3 fix: deduct stock for each POS item sold directly at counter

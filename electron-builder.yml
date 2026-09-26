@@ -13,6 +13,7 @@ directories:
 files:
   - dist/**
   - dist-electron/**
+  - dist-server/**
   - server/**
   - package.json
 

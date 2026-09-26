@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Room, POSItem, Receipt, getTierDisplayName, BillableService } from '../types';
 import { X, Calendar, User, FileText, ShoppingBag, Plus, Minus, CreditCard, ChevronRight, Sparkles, CheckCircle2, ShieldAlert, AlertTriangle, Loader2, Printer, ArrowRightLeft, Ticket } from 'lucide-react';
@@ -23,6 +23,7 @@ import { useToast } from './ui/Toast';
 import { kitchenOrderService } from '../api/kitchen';
 import { getCurrentInventory, InventoryItem } from '../api/inventory';
 import { getGuestDepositBalance } from '../api/deposits';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface RoomDetailSidebarProps {
   room: Room | null;
@@ -47,6 +48,8 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
   allRooms = [],
   onTransferSuccess,
 }) => {
+  useModalEscape(Boolean(room), onClose);
+
   if (!room) return null;
 
   const toast = useToast();
@@ -56,23 +59,23 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
   ) || {
     username: loggedInUser,
     name: loggedInUser,
-    role: 'admin' as const,
+    role: 'unknown',
   };
 
   const role = currentUser.role;
   const isStaffHouse = Boolean(room.isStaffHouse || room.roomType === 'Staff House' || room.number === '12');
 
-  // Map active billable services to standard POS catalog format
-  const dynamicCatalog = mapServicesToPOSItems(billableServices);
+  // Map active billable services to standard POS catalog format with useMemo
+  const dynamicCatalog = useMemo(() => mapServicesToPOSItems(billableServices), [billableServices]);
 
-  // Dynamic price lookup for extra bed, towel, and extra person services
-  const extraBedService = billableServices.find(s => s.id === 'extra-bed') || { price: 250 };
-  const towelService = billableServices.find(s => s.id === 'towel') || { price: 100 };
-  const extraPersonService = billableServices.find(s => s.id === 'extra-person') || { price: 150 };
-  const excessHourService = billableServices.find(s => s.id === 'late-checkout-extension') || { price: EXCESS_HOUR_RATE };
+  // Dynamic price lookup for extra bed, towel, and extra person services with useMemo
+  const extraBedService = useMemo(() => billableServices.find(s => s.id === 'extra-bed') || { price: 250 }, [billableServices]);
+  const towelService = useMemo(() => billableServices.find(s => s.id === 'towel') || { price: 100 }, [billableServices]);
+  const extraPersonService = useMemo(() => billableServices.find(s => s.id === 'extra-person') || { price: 150 }, [billableServices]);
+  const excessHourService = useMemo(() => billableServices.find(s => s.id === 'late-checkout-extension') || { price: EXCESS_HOUR_RATE }, [billableServices]);
 
   // Rates configuration per tier dynamically mapped from custom settings and overrides
-  const getRateValue = (tier: Room['tier'], rateType: Room['rateSelected']) => {
+  const getRateValue = useCallback((tier: Room['tier'], rateType: Room['rateSelected']) => {
     if (rateType === 'custom') {
       return (customHours || 1) * 130;
     }
@@ -83,7 +86,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       return DEFAULT_TIER_RATES[tier]?.[rateType] || 0;
     }
     return calculateStayRate(service, room.checkInTime || undefined);
-  };
+  }, [billableServices, room.checkInTime]);
 
   // Helper to format ISO to input datetime-local string
   const toLocalIsoString = (isoOrDate?: string | Date | null) => {
@@ -108,6 +111,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
   const [gcashRef, setGcashRef] = useState('');
   const [cashAmount, setCashAmount] = useState<number>(0);
   const [gcashAmount, setGcashAmount] = useState<number>(0);
+  const prevPaymentMethodRef = useRef<'CASH' | 'GCASH' | 'MIXED'>(paymentMethod);
   const [discountType, setDiscountType] = useState<'NONE' | 'SENIOR' | 'DC'>(room.discountType || 'NONE');
   const [discountIdRef, setDiscountIdRef] = useState(room.discountIdRef || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -202,13 +206,13 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
     } else {
       setChargedFood([]);
     }
-  }, [room, billableServices]);
+  }, [room.number, room.state, dynamicCatalog]);
 
   /** Mark the form dirty so background room-poll won't overwrite edits. */
-  const markDirty = () => { isDirty.current = true; };
+  const markDirty = useCallback(() => { isDirty.current = true; }, []);
 
   /** Save current form edits to the server explicitly, then clear dirty flag. */
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = useCallback(async () => {
     if (isSavingChanges) return;
     setIsSavingChanges(true);
     try {
@@ -237,28 +241,93 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
     } finally {
       setIsSavingChanges(false);
     }
-  };
+  }, [
+    isSavingChanges,
+    checkInTime,
+    room,
+    rateSelected,
+    customHours,
+    onUpdateRoom,
+    guestName,
+    guestId,
+    numGuests,
+    extraBeds,
+    towelSets,
+    chargedFood,
+    discountType,
+    discountIdRef,
+    toast,
+  ]);
 
-  // Compute Bill breakdown
-  const baseRate = getRateValue(room.tier, rateSelected);
-  const bedsCharge = extraBeds * extraBedService.price;
-  const towelsCharge = towelSets * towelService.price;
-  const currentNumGuests = room.state === 'occupied' ? (room.numGuests || 1) : numGuests;
-  const extraGuests = Math.max(0, currentNumGuests - 2);
-  const extraPersonCharge = extraGuests * extraPersonService.price;
-  const foodCharge = chargedFood.reduce((sum, order) => sum + order.item.price * order.quantity, 0);
+  // Compute Bill breakdown with useMemo
+  const financialBreakdown = useMemo(() => {
+    const baseRate = getRateValue(room.tier, rateSelected);
+    const bedsCharge = extraBeds * extraBedService.price;
+    const towelsCharge = towelSets * towelService.price;
+    const currentNumGuests = room.state === 'occupied' ? (room.numGuests || 1) : numGuests;
+    const extraGuests = Math.max(0, currentNumGuests - 2);
+    const extraPersonCharge = extraGuests * extraPersonService.price;
+    const foodCharge = chargedFood.reduce((sum, order) => sum + order.item.price * order.quantity, 0);
 
-  // Overdue excess hours calculation (past 15-minute grace period)
-  const isOccupiedOrOverdue = room.state === 'occupied' || room.state === 'overdue';
-  const excessHours = (isOccupiedOrOverdue && rateSelected !== 'custom') ? calculateExcessHours(room.checkOutTime) : 0;
-  const excessHoursCharge = excessHours * (excessHourService.price || EXCESS_HOUR_RATE);
+    // Overdue excess hours calculation (past 15-minute grace period)
+    const isOccupiedOrOverdue = room.state === 'occupied' || room.state === 'overdue';
+    const excessHours = (isOccupiedOrOverdue && rateSelected !== 'custom') ? calculateExcessHours(room.checkOutTime) : 0;
+    const excessHoursCharge = excessHours * (excessHourService.price || EXCESS_HOUR_RATE);
 
-  const rawDiscount = discountType !== 'NONE'
-    ? getDiscountAmountPesos(discountType, room.tier, rateSelected)
-    : null;
-  const discountAmount = rawDiscount !== null ? rawDiscount : 0;
-  const runningTotal = Math.max(0, baseRate - discountAmount + bedsCharge + towelsCharge + extraPersonCharge + foodCharge + excessHoursCharge);
-  const chargedCount = chargedFood.reduce((sum, f) => sum + f.quantity, 0);
+    const rawDiscount = discountType !== 'NONE'
+      ? getDiscountAmountPesos(discountType, room.tier, rateSelected)
+      : null;
+    const discountAmount = rawDiscount !== null ? rawDiscount : 0;
+    const runningTotal = Math.max(0, baseRate - discountAmount + bedsCharge + towelsCharge + extraPersonCharge + foodCharge + excessHoursCharge);
+    const chargedCount = chargedFood.reduce((sum, f) => sum + f.quantity, 0);
+
+    return {
+      baseRate,
+      bedsCharge,
+      towelsCharge,
+      currentNumGuests,
+      extraGuests,
+      extraPersonCharge,
+      foodCharge,
+      excessHours,
+      excessHoursCharge,
+      rawDiscount,
+      discountAmount,
+      runningTotal,
+      chargedCount,
+    };
+  }, [
+    room.tier,
+    room.state,
+    room.numGuests,
+    room.checkOutTime,
+    rateSelected,
+    extraBeds,
+    extraBedService.price,
+    towelSets,
+    towelService.price,
+    numGuests,
+    extraPersonService.price,
+    chargedFood,
+    excessHourService.price,
+    discountType,
+    getRateValue,
+  ]);
+
+  const {
+    baseRate,
+    bedsCharge,
+    towelsCharge,
+    extraGuests,
+    extraPersonCharge,
+    foodCharge,
+    excessHours,
+    excessHoursCharge,
+    rawDiscount,
+    discountAmount,
+    runningTotal,
+    chargedCount,
+  } = financialBreakdown;
 
   // Legacy extras are inventory-tracked too ('extra-bed' / 'towel').
   // Null = untracked/unknown → unlimited (fail-open).
@@ -266,7 +335,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
   const extraTowelStock = stockRemaining('towel');
   const isExtraBedCapped = extraBedStock !== null && extraBeds >= extraBedStock;
   const isExtraTowelCapped = extraTowelStock !== null && towelSets >= extraTowelStock;
-  const bumpExtraBeds = () => {
+  const bumpExtraBeds = useCallback(() => {
     if (extraBedStock !== null && extraBeds >= extraBedStock) {
       toast.warning(
         extraBedStock <= 0 ? 'Out of Stock' : 'Stock Limit',
@@ -276,9 +345,10 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       );
       return;
     }
-    setExtraBeds(extraBeds + 1);
-  };
-  const bumpTowelSets = () => {
+    setExtraBeds(prev => prev + 1);
+  }, [extraBedStock, extraBeds, toast]);
+
+  const bumpTowelSets = useCallback(() => {
     if (extraTowelStock !== null && towelSets >= extraTowelStock) {
       toast.warning(
         extraTowelStock <= 0 ? 'Out of Stock' : 'Stock Limit',
@@ -288,12 +358,12 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       );
       return;
     }
-    setTowelSets(towelSets + 1);
-  };
+    setTowelSets(prev => prev + 1);
+  }, [extraTowelStock, towelSets, toast]);
 
   // Single rate-change path for occupied rooms: local state + server persist
   // with checkout recalculated from the official pricing rule.
-  const handleOccupiedRateChange = (newRate: Room['rateSelected']) => {
+  const handleOccupiedRateChange = useCallback((newRate: Room['rateSelected']) => {
     setRateSelected(newRate);
     const parsedIn = checkInTime ? new Date(checkInTime) : (room.checkInTime ? new Date(room.checkInTime) : new Date());
     const validIn = !isNaN(parsedIn.getTime()) ? parsedIn : new Date();
@@ -306,10 +376,11 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       discountType,
       discountIdRef,
     }).catch(() => { /* already toasted + reverted */ });
-  };
+  }, [checkInTime, room, customHours, onUpdateRoom, discountType, discountIdRef]);
 
   // Persistent discount handlers for occupied / overdue rooms
-  const handleDiscountTypeChange = (type: 'NONE' | 'SENIOR' | 'DC') => {
+  const handleDiscountTypeChange = useCallback((type: 'NONE' | 'SENIOR' | 'DC') => {
+    markDirty();
     setDiscountType(type);
     const newRef = type === 'NONE' ? '' : discountIdRef;
     if (type === 'NONE') {
@@ -322,13 +393,14 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
         discountIdRef: newRef,
       }).catch(() => { /* already toasted + reverted */ });
     }
-  };
+  }, [markDirty, discountIdRef, room, onUpdateRoom]);
 
-  const handleDiscountIdRefChange = (refVal: string) => {
+  const handleDiscountIdRefChange = useCallback((refVal: string) => {
+    markDirty();
     setDiscountIdRef(refVal);
-  };
+  }, [markDirty]);
 
-  const handleDiscountIdRefBlur = () => {
+  const handleDiscountIdRefBlur = useCallback(() => {
     if (room.state === 'occupied' || room.state === 'overdue') {
       onUpdateRoom({
         ...room,
@@ -336,9 +408,10 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
         discountIdRef,
       }).catch(() => { /* already toasted + reverted */ });
     }
-  };
+  }, [room, discountType, discountIdRef, onUpdateRoom]);
 
-  const handleDiscountAndRateChange = (newDiscountType: 'NONE' | 'SENIOR' | 'DC', newRate?: Room['rateSelected']) => {
+  const handleDiscountAndRateChange = useCallback((newDiscountType: 'NONE' | 'SENIOR' | 'DC', newRate?: Room['rateSelected']) => {
+    markDirty();
     const nextRate = newRate || rateSelected;
     setDiscountType(newDiscountType);
     const updatedRef = newDiscountType === 'NONE' ? '' : discountIdRef;
@@ -361,7 +434,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
         discountIdRef: updatedRef,
       }).catch(() => { /* already toasted + reverted */ });
     }
-  };
+  }, [markDirty, rateSelected, discountIdRef, room, checkInTime, customHours, onUpdateRoom]);
 
   // Sticky-bar checkout gating (mirrors CheckoutActions validation)
   const isDiscountUnmapped = discountType !== 'NONE' && rawDiscount === null;
@@ -380,23 +453,27 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
           ? 'Cash + GCash must equal total'
           : null;
 
-  const handleCashAmountChange = (val: number) => {
+  const handleCashAmountChange = useCallback((val: number) => {
+    markDirty();
     setCashAmount(val);
     const remaining = Math.max(0, runningTotal - val);
     setGcashAmount(remaining);
-  };
+  }, [markDirty, runningTotal]);
 
-  const handleGcashAmountChange = (val: number) => {
+  const handleGcashAmountChange = useCallback((val: number) => {
+    markDirty();
     setGcashAmount(val);
     const remaining = Math.max(0, runningTotal - val);
     setCashAmount(remaining);
-  };
+  }, [markDirty, runningTotal]);
 
+  // Fix MIXED payment split reset bug: track prevPaymentMethodRef and only initialize amounts on explicit transition to 'MIXED'
   useEffect(() => {
-    if (paymentMethod === 'MIXED') {
+    if (paymentMethod === 'MIXED' && prevPaymentMethodRef.current !== 'MIXED') {
       setCashAmount(runningTotal);
       setGcashAmount(0);
     }
+    prevPaymentMethodRef.current = paymentMethod;
   }, [paymentMethod, runningTotal]);
 
   const handleCheckIn = async (e: React.FormEvent) => {
@@ -781,7 +858,12 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       />
 
       {/* Centered Large Modal Container */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-6 overflow-hidden pointer-events-none">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="room-detail-title"
+        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-6 overflow-hidden pointer-events-none"
+      >
         <motion.div
           initial={{ scale: 0.95, opacity: 0, y: 12 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -795,7 +877,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
               <span className="text-[10px] font-mono text-charcoal/40 uppercase tracking-widest font-bold">
                 {isStaffHouse ? 'Employee Housing Terminal' : 'Frontdesk Drawer'}
               </span>
-              <h2 className="font-display font-black text-xl text-primary leading-tight flex items-center gap-2">
+              <h2 id="room-detail-title" className="font-display font-black text-xl text-primary leading-tight flex items-center gap-2">
                 {isStaffHouse ? 'Staff House (Room 12)' : `Room Terminal ${room.number}`}
               </h2>
             </div>
@@ -1313,9 +1395,9 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
                 excessHoursCharge={excessHoursCharge}
                 runningTotal={runningTotal}
                 paymentMethod={paymentMethod}
-                setPaymentMethod={setPaymentMethod}
+                setPaymentMethod={(val) => { markDirty(); setPaymentMethod(val); }}
                 gcashRef={gcashRef}
-                setGcashRef={setGcashRef}
+                setGcashRef={(val) => { markDirty(); setGcashRef(val); }}
                 cashAmount={cashAmount}
                 handleCashAmountChange={handleCashAmountChange}
                 gcashAmount={gcashAmount}
@@ -1349,7 +1431,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
 
       {/* Sticky checkout bar — total + CTA always visible for occupied rooms */}
       {(room.state === 'occupied' || room.state === 'overdue') && !isStaffHouse && role !== 'kitchen' && (
-        <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur border-t border-secondary px-5 py-3 space-y-2">
+        <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur border-t border-secondary px-4 sm:px-5 py-3 space-y-2.5 shadow-lg">
           <div className="flex items-center justify-between font-mono">
             <span className="text-[10px] uppercase tracking-wider text-charcoal/50">Account Total</span>
             <span className="font-display font-extrabold text-xl text-primary">₱{runningTotal.toLocaleString()}</span>
@@ -1360,53 +1442,59 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
               <span>{checkoutBlockReason}</span>
             </p>
           )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="flex-1 bg-white hover:bg-cream/40 border border-secondary text-charcoal font-sans text-xs font-bold py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Go Back
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveChanges}
-              disabled={isSubmitting || isSavingChanges}
-              title="Save current changes to room details without checking out"
-              className="flex-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 font-sans text-xs font-bold py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSavingChanges ? (
-                <><Loader2 size={13} className="animate-spin" /><span>Saving…</span></>
-              ) : (
-                <><CheckCircle2 size={13} /><span>Save</span></>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handlePrePrintBill}
-              disabled={isSubmitting}
-              title="Pre-print bill before checkout"
-              className="flex-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-sans text-xs font-bold py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Printer size={14} className="text-amber-700" />
-              <span>Pre-Print</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleOpenGatePass}
-              disabled={isSubmitting}
-              title="Print Gate Pass for exit security clearance"
-              className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs font-bold py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Ticket size={14} className="text-amber-400" />
-              <span>Gate Pass</span>
-            </button>
+          {/* Responsive 2-tier layout for <480px screens */}
+          <div className="flex flex-col gap-2">
+            {/* Tier 1: Auxiliary / Utility actions */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="bg-white hover:bg-cream/40 border border-secondary text-charcoal font-sans text-xs font-bold py-2.5 sm:py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveChanges}
+                disabled={isSubmitting || isSavingChanges}
+                title="Save current changes to room details without checking out"
+                className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 font-sans text-xs font-bold py-2.5 sm:py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSavingChanges ? (
+                  <><Loader2 size={13} className="animate-spin" /><span>Saving…</span></>
+                ) : (
+                  <><CheckCircle2 size={13} /><span>Save</span></>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handlePrePrintBill}
+                disabled={isSubmitting}
+                title="Pre-print bill before checkout"
+                className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-sans text-xs font-bold py-2.5 sm:py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Printer size={14} className="text-amber-700" />
+                <span>Pre-Print</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenGatePass}
+                disabled={isSubmitting}
+                title="Print Gate Pass for exit security clearance"
+                className="bg-slate-900 hover:bg-slate-800 text-white font-sans text-xs font-bold py-2.5 sm:py-3 rounded-xl cursor-pointer transition text-center active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Ticket size={14} className="text-amber-400" />
+                <span>Gate Pass</span>
+              </button>
+            </div>
+
+            {/* Tier 2: Primary Main Action */}
             <button
               type="button"
               onClick={handleCheckOut}
               disabled={isCheckoutBlocked}
-              className="flex-[2] bg-primary hover:bg-primary-light disabled:bg-charcoal/30 text-white font-sans text-xs font-bold py-3 rounded-xl cursor-pointer disabled:cursor-not-allowed transition shadow-md flex items-center justify-center gap-2 active:scale-[0.98]"
+              className="w-full bg-primary hover:bg-primary-light disabled:bg-charcoal/30 text-white font-sans text-xs sm:text-sm font-bold py-3.5 rounded-xl cursor-pointer disabled:cursor-not-allowed transition shadow-md flex items-center justify-center gap-2 active:scale-[0.98]"
             >
               {isSubmitting ? (
                 <>

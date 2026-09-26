@@ -11,8 +11,9 @@ import { Router, Request, Response } from 'express';
 import { pool, withTransaction } from '../db/pool';
 import { requireAuth } from '../middleware/auth';
 import { socketManager } from '../websocket/socket-manager';
-import { inventoryService } from '../services/inventory-service';
+
 import { INITIAL_ROOMS } from '../../src/data';
+import { isMidnightPromoAllowed } from '../utils/pricing';
 
 const router = Router();
 
@@ -95,6 +96,16 @@ router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Respo
   const { number } = req.params;
   const room = req.body;
   const operator = (req as any).operator;
+
+  const rateSelected = room.rateSelected || room.rate_selected;
+  if (rateSelected === 'promo') {
+    const checkInDate = room.checkInTime || room.check_in_time ? new Date(room.checkInTime || room.check_in_time) : new Date();
+    if (!isMidnightPromoAllowed(checkInDate)) {
+      res.status(400).json({ error: 'Midnight promo rate is only valid for check-ins between 8:00 PM and 6:00 AM' });
+      return;
+    }
+  }
+
   try {
     const chargedFoodStr = JSON.stringify(room.chargedFood || []);
 
@@ -118,24 +129,10 @@ router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Respo
       const nextBeds = Number(room.extraBeds || 0);
       const nextTowels = Number(room.towelSets || 0);
 
-      const toConsume: Array<{ item_id: string; quantity: number; name: string }> = [];
-      if (nextBeds > prevBeds) {
-        toConsume.push({ item_id: 'extra-bed', quantity: nextBeds - prevBeds, name: 'Extra Bed' });
-      }
-      if (nextTowels > prevTowels) {
-        toConsume.push({ item_id: 'towel', quantity: nextTowels - prevTowels, name: 'Extra Towel' });
-      }
 
       // Bug 2 fix: Deduct 1 guest kit when a room first becomes occupied (check-in)
       const isNewCheckIn = prevState !== 'occupied' && prevState !== 'overdue' && room.state === 'occupied';
-      if (isNewCheckIn) {
-        toConsume.push({ item_id: 'supply-guest-kit', quantity: 1, name: 'Guest Kit' });
-      }
-
-      if (toConsume.length > 0) {
-        // inventoryService.atomicDecrementStock removed to fix double depletion
-      }
-
+      // (inventory decrement was handled by kitchen service; no duplicate call here)
 
 
       await conn.query(

@@ -8,6 +8,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { pool, withTransaction } from '../db/pool';
 import { requireAuth } from '../middleware/auth';
 import { socketManager } from '../websocket/socket-manager';
@@ -180,7 +181,7 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
     const nowIso = new Date().toISOString();
     const roomNumber = fcr.room_number;
 
-    await withTransaction(async (conn) => {
+    const result = await withTransaction(async (conn) => {
       // 1. Mark request as approved
       await conn.query(
         `UPDATE force_checkout_requests
@@ -264,7 +265,55 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
         [roomNumber]
       );
 
-      // 5. Log audit trail
+      // 5. If resolution is deposit_forfeit, record OUT transaction in deposit ledger
+      let depositEvent: any = null;
+      if (resolutionType === 'deposit_forfeit') {
+        const depositTxId = `dep-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+        const depositRef = `FORFEIT-FCR-${id}`;
+        const depositGuestId = fcr.guest_id || roomRow.guest_id || fcr.guest_name || roomRow.guest_name || String(roomNumber);
+        const depositGuestName = fcr.guest_name || roomRow.guest_name || 'Guest';
+        const uncollectedPesos = Number(fcr.uncollected_amount || 0);
+        const amountCentavos = Math.max(1, Math.round(uncollectedPesos * 100));
+
+        await conn.query(
+          `INSERT INTO deposit_transactions (
+            id, guest_identifier, guest_name, amount_centavos, direction,
+            payment_method, cash_amount_centavos, gcash_amount_centavos,
+            reference_id, idempotency_key, booking_id, room_number, receipt_no,
+            notes, operator, created_at
+          ) VALUES (?, ?, ?, ?, 'OUT', 'BALANCE_APPLIED', 0, 0, ?, ?, NULL, ?, ?, ?, ?, datetime('now', 'localtime'))`,
+          [
+            depositTxId,
+            depositGuestId,
+            depositGuestName,
+            amountCentavos,
+            depositRef,
+            depositRef,
+            String(roomNumber),
+            receiptNo,
+            adminNotes ? `Deposit forfeit: ${adminNotes}` : `Deposit forfeited for Force Check-Out #${id}`,
+            operator.username,
+          ]
+        );
+
+        const balRes = await conn.query(
+          `SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount_centavos ELSE -amount_centavos END), 0) AS balance_centavos
+           FROM deposit_transactions 
+           WHERE LOWER(guest_identifier) = LOWER(?)`,
+          [depositGuestId]
+        );
+        const balanceCentavos = Number(balRes.rows[0]?.balance_centavos || 0);
+
+        depositEvent = {
+          guestIdentifier: depositGuestId,
+          amountCentavos,
+          balanceCentavos,
+          operator: operator.username,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // 6. Log audit trail
       await conn.query(
         `INSERT INTO audit_logs (id, timestamp, operator, action, details)
          VALUES (?, ?, ?, 'FORCE_CHECKOUT_APPROVED', ?)`,
@@ -275,7 +324,13 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
           `Admin ${operator.username} approved Force Check-Out for Room ${roomNumber} (Request #${id}). Resolution: ${resolutionType}. Uncollected written-off: ₱${Number(fcr.uncollected_amount || 0).toLocaleString()}. Notes: ${adminNotes || 'None'}`
         ]
       );
+
+      return { depositEvent };
     });
+
+    if (result?.depositEvent) {
+      socketManager.broadcast('deposit:recorded', result.depositEvent);
+    }
 
     const updatedResult = await pool.query('SELECT * FROM force_checkout_requests WHERE id = ?', [id]);
     const updatedItem = rowToForceCheckoutRequest(updatedResult.rows[0]);
