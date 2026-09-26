@@ -7,6 +7,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 
 import { bucketRoomStatus } from '../routes/customer-display';
+import { isOriginAllowed } from '../utils/cors';
 
 export interface SanitizedDisplayRoomEvent {
   roomNumber: string;
@@ -53,39 +54,21 @@ export class SocketManager {
    * Initialize Socket.IO server (matches existing interface)
    */
   initialize(httpServer: HTTPServer): void {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'http://localhost:4000',
-      'http://127.0.0.1:4000',
-      'https://doretta-unordained-josiah.ngrok-free.dev',
-      'http://doretta-unordained-josiah.ngrok-free.dev',
-      process.env.APP_URL,
-    ].filter(Boolean) as string[];
-
     this.io = new SocketIOServer(httpServer, {
       cors: {
         origin: (origin, callback) => {
-          if (!origin) return callback(null, true);
-          if (
-            allowedOrigins.includes(origin) ||
-            origin.startsWith('http://localhost:') ||
-            origin.startsWith('http://127.0.0.1:') ||
-            origin.endsWith('.ngrok-free.dev') ||
-            origin.endsWith('.ngrok.app') ||
-            origin.endsWith('.ngrok.io')
-          ) {
+          if (isOriginAllowed(origin)) {
             return callback(null, true);
           }
-          return callback(new Error('Not allowed by CORS'));
+          return callback(null, false);
         },
-        methods: ["GET", "POST"],
-        credentials: true
+        methods: ['GET', 'POST'],
+        credentials: true,
       },
       pingTimeout: 60000,
       pingInterval: 25000,
       connectTimeout: 45000,
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
     });
 
     this.io.use((socket, next) => {

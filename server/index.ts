@@ -77,6 +77,7 @@ import { createServer } from 'http';
 import { testConnection } from './db/pool';
 import { validateEnvironment } from './utils/env-validator';
 import { socketManager } from './websocket/socket-manager';
+import { expressCorsOptions } from './utils/cors';
 
 import authRouter from './routes/auth';
 import roomsRouter from './routes/rooms';
@@ -121,32 +122,8 @@ httpServer.on('clientError', (err: any, socket) => {
 });
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow non-browser requests (curl, server-to-server, mobile apps)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'https://doretta-unordained-josiah.ngrok-free.dev',
-      'http://doretta-unordained-josiah.ngrok-free.dev',
-      process.env.APP_URL,
-    ].filter(Boolean) as string[];
-
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('.ngrok-free.dev') ||
-      origin.endsWith('.ngrok.app') ||
-      origin.endsWith('.ngrok.io')
-    ) {
-      return callback(null, true);
-    }
-
-    return callback(new Error('Not allowed by CORS')); // Strict CORS
-  },
-  credentials: true,
-}));
+app.use(cors(expressCorsOptions));
+app.options('*', cors(expressCorsOptions));
 app.use(express.json({ limit: '2mb' }));
 
 // ─── Health Check ──────────────────────────────────────────────────────────────
@@ -205,12 +182,14 @@ async function start() {
     // Initialize WebSocket server
     socketManager.initialize(httpServer);
     
-    // Start HTTP server
-    httpServer.listen(PORT, () => {
-      console.log(`\n🏨 Sedona Court API running at http://localhost:${PORT}`);
+    // Start HTTP server bound to all LAN network interfaces (0.0.0.0)
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n🏨 Sedona Court API running on 0.0.0.0:${PORT}`);
+      console.log(`   Local:        http://localhost:${PORT}`);
+      console.log(`   LAN Stations: http://192.168.0.103:${PORT} | http://192.168.0.104:${PORT} | http://192.168.0.105:${PORT}`);
       console.log(`   Health check: http://localhost:${PORT}/api/health`);
-      console.log(`   WebSocket: ws://localhost:${PORT}`);
-      console.log(`   Environment: ${envConfig.NODE_ENV}\n`);
+      console.log(`   WebSocket:    ws://0.0.0.0:${PORT}`);
+      console.log(`   Environment:  ${envConfig.NODE_ENV}\n`);
     });
   } catch (err) {
     console.error('❌ Failed to start server:', err);

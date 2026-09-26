@@ -49,6 +49,8 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: '0.0.0.0',
+      port: 3000,
       // Allow all local network IPs, ngrok, Cloudflare tunnels, and local domains
       allowedHosts: true,
       hmr: process.env.DISABLE_HMR !== 'true',
