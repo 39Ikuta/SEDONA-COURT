@@ -125,43 +125,55 @@ export default function App() {
   // ─── Hydrate all state from API on login & on sleep/wake resume ────────────
   const hydrate = useCallback(async (isSilent = false) => {
     if (!loggedInUser || role === 'customer_display' || isCustomerDisplayView) return;
-    try {
-      const isAdminOrOwner = role === 'admin' || role === 'owner';
-      const [roomsData, bookingsData, servicesData, logsData, tasksData, posRev, receiptsData, forceOutRequests] = await Promise.all([
-        getRooms(),
-        getBookings(),
-        getServices(),
-        isAdminOrOwner ? getAuditLogs() : Promise.resolve([]),
-        getTasks(),
-        getPOSRevenue(),
-        getReceipts(),
-        getForceCheckoutRequests('pending').catch(() => []),
-      ]);
-      const pendingRoomNumbers = new Set((forceOutRequests || []).map(r => r.roomNumber));
-      setRooms(roomsData.map(rm => ({
-        ...rm,
-        forceCheckoutPending: pendingRoomNumbers.has(rm.number),
-      })));
-      setPendingForceCheckoutCount((forceOutRequests || []).length);
-      setBookings(bookingsData); // Use API data directly, no fallback
-      setBillableServices(servicesData.length > 0 ? servicesData : DEFAULT_BILLABLE_SERVICES);
-      setAuditLogs(logsData || []);
-      setPendingTasks(tasksData);
-      setAdditionalPOSRevenue(posRev.total);
-      setAdditionalPOSCategoryRevenue({ kitchen: posRev.kitchen, drinks: posRev.drinks, miscell: posRev.miscell });
-      setSessionReceipts(receiptsData);
-      setApiReady(true);
-      setApiError(null);
-    } catch (err: any) {
-      if (!isSilent) {
-        console.warn('⚠️ API unavailable, using local seed data as fallback.', err);
-        setApiReady(false);
-        // Surface offline mode: checkout/checkin will fail loudly instead of
-        // silently diverging. Reload in this state always reverts to seed.
-        setApiError(err?.message || 'Cannot reach backend at /api (is `npm run server` running on port 4000?).');
-        toast.error('Database Offline', 'Backend unreachable — changes will NOT persist after reload. Start the API server with `npm run dev:all`.');
-      } else {
-        console.warn('⚠️ Background sleep/wake re-sync failed, will retry next tick.', err);
+
+    const MAX_ATTEMPTS = isSilent ? 1 : 3;
+    const RETRY_DELAYS = [1000, 2000]; // ms between retries (only used on attempts 2, 3)
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const isAdminOrOwner = role === 'admin' || role === 'owner';
+        const [roomsData, bookingsData, servicesData, logsData, tasksData, posRev, receiptsData, forceOutRequests] = await Promise.all([
+          getRooms(),
+          getBookings(),
+          getServices(),
+          isAdminOrOwner ? getAuditLogs() : Promise.resolve([]),
+          getTasks(),
+          getPOSRevenue(),
+          getReceipts(),
+          getForceCheckoutRequests('pending').catch(() => []),
+        ]);
+        const pendingRoomNumbers = new Set((forceOutRequests || []).map(r => r.roomNumber));
+        setRooms(roomsData.map(rm => ({
+          ...rm,
+          forceCheckoutPending: pendingRoomNumbers.has(rm.number),
+        })));
+        setPendingForceCheckoutCount((forceOutRequests || []).length);
+        setBookings(bookingsData);
+        setBillableServices(servicesData.length > 0 ? servicesData : DEFAULT_BILLABLE_SERVICES);
+        setAuditLogs(logsData || []);
+        setPendingTasks(tasksData);
+        setAdditionalPOSRevenue(posRev.total);
+        setAdditionalPOSCategoryRevenue({ kitchen: posRev.kitchen, drinks: posRev.drinks, miscell: posRev.miscell });
+        setSessionReceipts(receiptsData);
+        setApiReady(true);
+        setApiError(null);
+        return; // success — exit retry loop
+      } catch (err: any) {
+        if (!isSilent && attempt < MAX_ATTEMPTS) {
+          // API not ready yet (race condition window) — wait and retry silently
+          console.log(`⏳ API not ready yet (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${RETRY_DELAYS[attempt - 1]}ms...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt - 1]));
+          continue;
+        }
+        // All retries exhausted or silent mode
+        if (!isSilent) {
+          console.warn('⚠️ API unavailable after all retry attempts, using local seed data as fallback.', err);
+          setApiReady(false);
+          setApiError(err?.message || 'Cannot reach backend at /api (is `npm run server` running on port 4000?).');
+          toast.error('Database Offline', 'Backend unreachable — changes will NOT persist after reload. Start the API server with `npm run dev:all`.');
+        } else {
+          console.warn('⚠️ Background sleep/wake re-sync failed, will retry next tick.', err);
+        }
       }
     }
   }, [loggedInUser, role, isCustomerDisplayView, toast]);
