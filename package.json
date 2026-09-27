@@ -19,7 +19,7 @@
     "migrate:create": "tsx --tsconfig tsconfig.server.json server/db/migration-runner.ts create",
     "db:setup": "npm run migrate && npm run seed",
     "db:reset": "tsx --tsconfig tsconfig.server.json server/db/reset.ts",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
+    "dev:all": "concurrently --kill-others-on-fail -n server,frontend -c green,blue \"npm run server\" \"wait-on http://localhost:4000/api/health && npm run dev\"",
     "build:server": "esbuild server/index.ts --bundle --platform=node --outfile=dist-server/index.js --format=esm",
     "electron:dev": "cross-env ELECTRON=true vite",
     "electron:build": "npm run build:server && cross-env ELECTRON=true vite build && electron-builder",
@@ -67,6 +67,7 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
     "vite-plugin-electron": "^1.1.2",
-    "vite-plugin-electron-renderer": "^1.0.0"
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "wait-on": "^8.0.0"
   }
 }
