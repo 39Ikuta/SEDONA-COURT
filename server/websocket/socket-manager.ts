@@ -185,6 +185,19 @@ export class SocketManager {
   }
 
   /**
+   * Broadcast to staff room only (cashier, admin, owner).
+   * Use for operational events that kiosk/display clients don't need.
+   */
+  broadcastToStaff(event: string, data: any): void {
+    if (!this.io) {
+      console.warn('WebSocket not initialized, cannot broadcast to staff');
+      return;
+    }
+    this.io.to('room:staff').emit(event, data);
+    console.log(`🔒 Staff broadcast: ${event}`);
+  }
+
+  /**
    * Broadcast room update (existing interface)
    * Sends full data to staff room and sanitized data to display room.
    */

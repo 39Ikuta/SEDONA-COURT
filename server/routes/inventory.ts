@@ -65,7 +65,7 @@ router.post('/stock', requireInventoryStaff, asyncHandler(async (req: Request, r
     );
 
     // Broadcast inventory update via WebSocket
-    socketManager.broadcast('inventory:updated', {
+    socketManager.broadcastToStaff('inventory:updated', {
       itemId,
       currentQuantity: result.item.current_quantity,
       updatedBy: operator,
@@ -115,7 +115,7 @@ router.post('/stock/batch', requireInventoryStaff, asyncHandler(async (req: Requ
       notes || 'Shift opening batch count'
     );
 
-    socketManager.broadcast('inventory:batch_updated', {
+    socketManager.broadcastToStaff('inventory:batch_updated', {
       count: updatedItems.length,
       updatedBy: operator,
       timestamp: new Date().toISOString(),
@@ -163,7 +163,7 @@ router.post('/item', requireInventoryStaff, asyncHandler(async (req: Request, re
       operator
     );
 
-    socketManager.broadcast('inventory:updated', {
+    socketManager.broadcastToStaff('inventory:updated', {
       itemId: newItem.item_id,
       currentQuantity: newItem.current_quantity,
       updatedBy: operator,
