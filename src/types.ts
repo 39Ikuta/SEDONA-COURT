@@ -171,9 +171,13 @@ export interface Receipt {
   checkIn: string;
   checkOut: string;
   items: Array<{
+    item_id?: string; // Service/menu item ID for inventory tracking
+    id?: string; // Alternative field name (backwards compat)
     description: string;
     subtext: string;
     amount: number;
+    quantity?: number; // Quantity for POS items
+    name?: string; // Item name for POS items
   }>;
   subtotal: number;
   serviceCharge: number;

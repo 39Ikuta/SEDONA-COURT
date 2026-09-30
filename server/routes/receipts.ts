@@ -1395,30 +1395,26 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             });
           }
           // H-06 FIX: Check inventory stock BEFORE finalizing bill with food items
+          // BUG FIX: Actually deduct inventory for room-charged food items
           if (chargedFoodList.length > 0) {
-            for (const f of chargedFoodList) {
-              const itemId = String(f.item?.id || '').trim();
-              if (itemId) {
-                const stockRes = await conn.query(
-                  'SELECT current_stock FROM inventory WHERE id = ?',
-                  [itemId]
-                );
+            // Prepare items for inventory deduction
+            const inventoryItems = chargedFoodList
+              .filter(f => f.item?.id)
+              .map(f => ({
+                item_id: String(f.item.id),
+                quantity: Number(f.quantity || 1),
+                name: f.item?.name || 'Food Item'
+              }));
 
-                if (stockRes.rows.length > 0) {
-                  const currentStock = Number(stockRes.rows[0].current_stock || 0);
-                  const requiredQty = Number(f.quantity || 1);
-
-                  if (currentStock < requiredQty) {
-                    throw Object.assign(
-                      new Error(
-                        `Insufficient stock for "${f.item?.name || itemId}". ` +
-                        `Available: ${currentStock}, Required: ${requiredQty}. Cannot complete checkout.`
-                      ),
-                      { statusCode: 400 }
-                    );
-                  }
-                }
-              }
+            if (inventoryItems.length > 0) {
+              // Use atomic inventory deduction (checks stock AND deducts in one transaction)
+              const roomOperator = authenticatedOperator;
+              await inventoryService.atomicDecrementStock(
+                inventoryItems,
+                receiptNo,
+                roomOperator,
+                conn
+              );
             }
           }
 
@@ -1444,8 +1440,17 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
 
           for (const it of items) {
             const itemId = String(it.item_id || it.id || '').trim();
-            if (!itemId || !priceMap.has(itemId)) {
-              throw Object.assign(new Error(`Invalid or missing service ID for POS item: ${itemId || 'unknown'}`), { statusCode: 400 });
+            if (!itemId) {
+              throw Object.assign(
+                new Error(`Receipt item missing both 'item_id' and 'id' fields. Item: ${JSON.stringify(it)}`),
+                { statusCode: 400 }
+              );
+            }
+            if (!priceMap.has(itemId)) {
+              throw Object.assign(
+                new Error(`Invalid service ID for POS item: "${itemId}" not found in billable_services. Available IDs: ${Array.from(priceMap.keys()).slice(0, 10).join(', ')}...`),
+                { statusCode: 400 }
+              );
             }
             const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
             const actualPrice = priceMap.get(itemId)!;

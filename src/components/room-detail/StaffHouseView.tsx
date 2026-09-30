@@ -127,6 +127,10 @@ export const StaffHouseView: React.FC<StaffHouseViewProps> = ({
     const receiptNo = `STF-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const items = chargedFood.map((f) => ({
+      item_id: f.item.id,
+      id: f.item.id,
+      quantity: f.quantity,
+      name: f.item.name,
       description: f.item.name,
       subtext: `${f.quantity} Qty @ ₱${f.item.price} • ${f.item.category || 'Item Order'}`,
       amount: f.item.price * f.quantity,

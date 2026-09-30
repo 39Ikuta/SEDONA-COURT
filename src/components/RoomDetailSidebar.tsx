@@ -770,7 +770,15 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
         });
       }
       chargedFood.forEach(f => {
-        items.push({ description: f.item.name, subtext: `${f.quantity} Qty x ₱${f.item.price}`, amount: f.item.price * f.quantity });
+        items.push({
+          item_id: f.item.id,
+          id: f.item.id,
+          quantity: f.quantity,
+          name: f.item.name,
+          description: f.item.name,
+          subtext: `${f.quantity} Qty x ₱${f.item.price}`,
+          amount: f.item.price * f.quantity
+        });
       });
 
       // Include applied security deposit in items if applied
@@ -917,7 +925,15 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
       });
     }
     chargedFood.forEach(f => {
-      items.push({ description: f.item.name, subtext: `${f.quantity} Qty x ₱${f.item.price}`, amount: f.item.price * f.quantity });
+      items.push({
+        item_id: f.item.id,
+        id: f.item.id,
+        quantity: f.quantity,
+        name: f.item.name,
+        description: f.item.name,
+        subtext: `${f.quantity} Qty x ₱${f.item.price}`,
+        amount: f.item.price * f.quantity
+      });
     });
 
     if (appliedDepositAmount > 0 && depositResolution === 'apply' && activeDeposit) {
@@ -1838,7 +1854,15 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
                 ...(bedsCharge > 0 ? [{ description: 'Extra Bed Add-on', subtext: `${extraBeds} Bed(s)`, amount: bedsCharge }] : []),
                 ...(towelsCharge > 0 ? [{ description: 'Extra Towels Add-on', subtext: `${towelSets} Set(s)`, amount: towelsCharge }] : []),
                 ...(extraPersonCharge > 0 ? [{ description: 'Extra Person Surcharge', subtext: `${extraGuests} Extra Pax`, amount: extraPersonCharge }] : []),
-                ...chargedFood.map(f => ({ description: f.item.name, subtext: `${f.quantity} Qty x ₱${f.item.price}`, amount: f.item.price * f.quantity }))
+                ...chargedFood.map(f => ({
+                  item_id: f.item.id,
+                  id: f.item.id,
+                  quantity: f.quantity,
+                  name: f.item.name,
+                  description: f.item.name,
+                  subtext: `${f.quantity} Qty x ₱${f.item.price}`,
+                  amount: f.item.price * f.quantity
+                }))
               ]}
               onClose={() => setIsForceCheckoutModalOpen(false)}
               onSuccess={() => {

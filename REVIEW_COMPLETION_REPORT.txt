@@ -1,0 +1,239 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    POTETO SQUAD REVIEW — COMPLETION REPORT                   ║
+║                       Sedona Court PMS Analysis Package                      ║
+║                              2026-09-30                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 📦 DELIVERABLES SUMMARY                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  ✓  README_POTETO_REVIEW.md              12 KB   Quick reference card
+  ✓  POTETO_REVIEW_SUMMARY.md             17 KB   Executive summary
+  ✓  BILLING_AUDIT_REPORT.md              45 KB   Deep billing audit
+  ✓  CASHIER_DASHBOARD_PLAN_REVIEW.md     19 KB   Dashboard plan assessment
+  ───────────────────────────────────────────────────────────────────────────
+     TOTAL:                               93 KB   2,814 lines of analysis
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 🎯 KEY FINDINGS AT A GLANCE                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  BILLING AUDIT:
+    • 28 total findings identified
+    • 8 critical issues (money, security, race conditions)
+    • 8 high-priority issues (data integrity, compliance)
+    • 12 medium-priority issues (audit, observability)
+    • 4-6 weeks estimated remediation timeline
+
+  DASHBOARD PLAN:
+    • Overall verdict: APPROVED with CONDITIONS
+    • Phase 1 (UI Shell): ✅ APPROVED — Safe to start
+    • Phase 2 (Pagination): ⚠️ CONDITIONAL — 3 blockers must be fixed
+    • Phase 3-4 (Polish): 🔍 HOLD — 5 technical questions pending
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 🚨 CRITICAL BLOCKERS (Must Fix Before Phase 2)                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  🔴 C-01: FLOATING-POINT MONEY ARITHMETIC
+     Impact: Wrong change calculations, rounding errors
+     Location: CheckoutActions.tsx:302-368
+     ETA: 2 days
+     Fix: Convert all money math to integer centavos
+
+  🔴 C-03: GCASH REFERENCE DUPLICATION
+     Impact: Same reference can be used multiple times
+     Location: server/routes/receipts.ts:865
+     ETA: 1 day
+     Fix: Add UNIQUE index + server validation
+
+  🔴 C-04: TIME MANIPULATION VULNERABILITY
+     Impact: Clients can backdate checkouts to avoid charges
+     Location: CheckoutActions.tsx:347-368
+     ETA: 1 day
+     Fix: Server becomes clock authority
+
+  ✅ C-02: DEPOSIT RACE CONDITION — ALREADY FIXED
+     Migration 001_add_guest_balance_cache.sql applied successfully
+
+  🟠 C-05: MISSING VAT COMPLIANCE (12%)
+     Impact: Legal requirement for BIR compliance
+     Status: File as separate ticket (parallel track)
+     ETA: 1 week
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 🔍 TECHNICAL CLARIFICATIONS NEEDED (Before Phase 3-4)                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  ⚪ T-01: Total room count?
+     → Determines pagination strategy (client vs server)
+
+  ⚪ T-02: Drawer state machine rules?
+     → Multi-room selection behavior
+
+  ⚪ T-03: KPI shift scope definition?
+     → Personal vs station-scoped sales
+
+  ⚪ T-04: Button visibility rules?
+     → 7 buttons won't fit mobile width
+
+  ⚪ T-05: Keyboard shortcut context?
+     → Avoid stealing focus from input fields
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 📋 APPROVAL STATUS                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  Phase 1 (UI Shell):
+    Status: ✅ APPROVED
+    Scope: Two-pane list view, filter bar, role branching
+    Risk: None (pure React components)
+    Timeline: 2-3 days
+    Action: Start immediately
+
+  Phase 2 (Pagination + Backend):
+    Status: ⚠️ CONDITIONAL APPROVAL
+    Conditions:
+      ☐ Fix C-01 (float→centavo money)
+      ☐ Fix C-03 (GCash uniqueness)
+      ☐ Fix C-04 (server clock authority)
+      ☐ Clarify T-01 (room count)
+    Timeline: 5-7 days after conditions met
+
+  Phase 3-4 (Slip/Dep Ports + Polish):
+    Status: 🔍 HOLD
+    Pending: T-02, T-03, T-04, T-05 clarifications
+    Resume: After P2 completion
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ⚡ IMMEDIATE ACTION PLAN                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  THIS WEEK:
+
+    Day 1-2:
+      ▶ Start Phase 1 (UI Shell) — Safe to proceed
+        → Create CashierDashboard.tsx + CashierFilterBar.tsx
+        → Branch App.tsx on role === 'cashier'
+        → Acceptance: Cashier sees lists, admin sees grid
+
+    Day 2-3:
+      ▶ Fix C-01: Float Money → Centavo Math
+        → Refactor CheckoutActions.tsx financialBreakdown()
+        → Add test: balance preview === server (±1 centavo)
+
+    Day 3:
+      ▶ Fix C-03: GCash Uniqueness
+        → Migration: 002_add_gcash_reference_uniqueness.sql
+        → Server validation in receipts.ts
+        → Test: Duplicate ref returns 409 Conflict
+
+    Day 4:
+      ▶ Fix C-04: Server Clock Authority
+        → Remove checkOutTime from client POST
+        → Server uses new Date() as authority
+        → Test: Backdated checkout rejected
+
+    Day 5:
+      ▶ Clarify T-01 to T-05
+        → Count total rooms in production database
+        → Define drawer state machine
+        → Document shift scope and button visibility
+
+  NEXT 2 WEEKS:
+
+    Week 2:
+      ▶ Complete Phase 2 (after conditions met)
+      ▶ File VAT compliance ticket (parallel track)
+      ▶ Run full test suite + money arithmetic audit
+
+    Week 3-4:
+      ▶ Complete Phase 3-4 (after clarifications answered)
+      ▶ Run verification suite (lint + build + tests)
+      ▶ Manual UX testing (pau/admin/kitchen1 roles)
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 🎓 QUALITY GATES                                                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  Before merging P1:
+    ☐ Cashier role sees list view, admin sees grid
+    ☐ npm run lint passes
+    ☐ npm run build passes
+    ☐ Manual UX test with 3 users
+
+  Before merging P2:
+    ☐ All P1 gates passed
+    ☐ C-01, C-03, C-04 fixes verified
+    ☐ Balance preview matches server (±1 centavo)
+    ☐ GCash duplicate returns 409
+    ☐ All existing tests green
+
+  Before merging P3-4:
+    ☐ All P2 gates passed
+    ☐ Slip prints kitchen orders correctly
+    ☐ Dep prints deposit receipt with DEP-XXXXXX
+    ☐ Keyboard shortcuts work in context
+    ☐ Accessibility audit passed
+
+  Before production deployment:
+    ☐ All P1-P4 gates passed
+    ☐ VAT compliance implemented (C-05)
+    ☐ Load testing completed
+    ☐ 3 real cashiers approved UX
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 📚 DOCUMENT NAVIGATION                                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  START HERE → README_POTETO_REVIEW.md
+    Quick reference card with navigation guide
+
+  EXECUTIVE SUMMARY → POTETO_REVIEW_SUMMARY.md
+    10-minute read for decision makers
+    Sections: Critical issues, approval path, action plan
+
+  FULL BILLING AUDIT → BILLING_AUDIT_REPORT.md
+    45-minute deep dive for backend engineers
+    Sections: §2 Critical, §3 High-Priority, §4 Medium, §5 Remediation
+
+  DASHBOARD PLAN REVIEW → CASHIER_DASHBOARD_PLAN_REVIEW.md
+    30-minute read for frontend engineers
+    Sections: Strengths, critical issues, technical clarifications
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ✅ POTETO SQUAD SIGN-OFF                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  Reviewed By:
+    • BEETLE (QA audits, bug triage, debugging)
+    • TEA (TypeScript strictness, API design, TDD)
+    • ENGINE-O (Frontend UI, performance, accessibility)
+
+  Review Completed: 2026-09-30
+  Plan Author: Poteto (plan-mode orchestration)
+  Total Analysis Time: ~4 hours
+
+  Status: ✅ ANALYSIS COMPLETE — Awaiting approval decision
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 📞 NEXT STEP                                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  Reply with your approval decision:
+
+    Option A: "approve P1"
+      → Start UI shell only (safest path)
+
+    Option B: "approve P1-P2 with conditions"
+      → UI + pagination after C-01/C-03/C-04 fixed (recommended)
+
+    Option C: "hold pending clarifications"
+      → Answer T-01 to T-05 first before any implementation
+
+  Or ask questions about specific findings or recommendations.
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           END OF REVIEW REPORT                               ║
+╚══════════════════════════════════════════════════════════════════════════════╝

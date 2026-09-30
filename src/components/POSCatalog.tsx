@@ -273,9 +273,13 @@ export const POSCatalog: React.FC<POSCatalogProps> = ({
         checkIn: nowIso,
         checkOut: nowIso,
         items: cart.map(c => ({
+          id: c.item.id,
+          item_id: c.item.id,  // Critical: item_id must be present for inventory deduction
+          quantity: c.quantity,
           description: c.item.name,
           subtext: `${c.quantity} Qty x ₱${c.item.price}`,
-          amount: c.item.price * c.quantity
+          amount: c.item.price * c.quantity,
+          name: c.item.name,  // Add name field for better error messages
         })),
         subtotal,
         serviceCharge,

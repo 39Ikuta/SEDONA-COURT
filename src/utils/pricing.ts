@@ -210,7 +210,7 @@ export const mapServicesToPOSItems = (services: BillableService[]): POSItem[] =>
       price: s.price,
       category: s.category,
       description: s.description || '',
-      imageUrl: s.imageUrl || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=120&q=80',
+      imageUrl: s.imageUrl || 'https://placehold.co/400x300',
     }));
 };
 

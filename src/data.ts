@@ -89,7 +89,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Breakfast',
     description: 'Pan-fried marinated milkfish (bangus), garlic sinangag rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-porksilog',
@@ -97,7 +97,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Breakfast',
     description: 'Golden crispy pork chop, garlic fried rice, and sunny-side-up egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-chicksilog',
@@ -105,7 +105,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Breakfast',
     description: 'Crisp seasoned fried chicken, fragrant garlic rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-tapsilog',
@@ -113,7 +113,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 160,
     category: 'Breakfast',
     description: 'Tender marinated beef tapa, garlic sinangag, and farm-fresh fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-longsilog',
@@ -121,7 +121,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Breakfast',
     description: 'Savory-sweet native longganisa sausages, garlic sinangag rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-hotsilog',
@@ -129,7 +129,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 130,
     category: 'Breakfast',
     description: 'Juicy red hotdogs with fragrant garlic fried rice and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- ALL TIME FAVORITES ---
@@ -139,7 +139,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 180,
     category: 'Favorites',
     description: 'Crisp golden battered squid rings served with tartar dipping sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1604909052743-94e838986d24?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-lechon-kawali',
@@ -147,7 +147,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 230,
     category: 'Favorites',
     description: 'Crispy deep-fried pork belly chunks served with spiced liver sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-chicharong-bulaklak',
@@ -155,7 +155,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 200,
     category: 'Favorites',
     description: 'Crunchy deep-fried pork ruffle fat served with seasoned spicy cane vinegar.',
-    imageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-buffalo-wings',
@@ -163,7 +163,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 230,
     category: 'Favorites',
     description: 'Crispy chicken wings tossed in rich, zesty buffalo glaze.',
-    imageUrl: 'https://images.unsplash.com/photo-1567620832903-9fc6debc209f?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-buttered-chicken',
@@ -171,7 +171,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 230,
     category: 'Favorites',
     description: 'Tender chicken bites sautéed in rich garlic butter sauce (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1606755962773-d324e0a13086?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-garlic-chicken',
@@ -179,7 +179,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 230,
     category: 'Favorites',
     description: 'Crisp seasoned chicken smothered in aromatic toasted garlic bits (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-tokwat-baboy',
@@ -187,7 +187,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 140,
     category: 'Favorites',
     description: 'Deep-fried firm tofu and tender pork slices in seasoned soy-vinegar dressing (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-tofu',
@@ -195,7 +195,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 140,
     category: 'Favorites',
     description: 'Crispy tofu cubes tossed with savory creamy dressing on a sizzling plate (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-sisig-egg',
@@ -203,7 +203,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 230,
     category: 'Favorites',
     description: 'Crispy seasoned minced pork sisig with onions, chili, and fresh egg on hot plate (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-hotdog',
@@ -211,7 +211,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Favorites',
     description: 'Sliced tender hotdogs sautéed with onions in savory sweet gravy (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-pancit-canton',
@@ -219,7 +219,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 130,
     category: 'Favorites',
     description: 'Stir-fried egg noodles with crisp vegetables, pork slices, and savory sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-lomi',
@@ -227,7 +227,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 130,
     category: 'Favorites',
     description: 'Thick egg noodle soup with rich savory broth, egg drops, and hearty meat toppings.',
-    imageUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-french-fries',
@@ -235,7 +235,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 90,
     category: 'Favorites',
     description: 'Golden crispy shoestring potato fries with ketchup or mayo dip.',
-    imageUrl: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- KITCHEN EXTRAS ---
@@ -245,7 +245,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 30,
     category: 'Kitchen Extras',
     description: 'Steamed fragrant white jasmine rice.',
-    imageUrl: 'https://images.unsplash.com/photo-1516684732162-798a0062be99?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-garlic-rice',
@@ -253,7 +253,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 40,
     category: 'Kitchen Extras',
     description: 'Sinangag rice sautéed with toasted garlic chips.',
-    imageUrl: 'https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-egg',
@@ -261,7 +261,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 20,
     category: 'Kitchen Extras',
     description: 'Farm fresh egg cooked to preference (sunny side up, scrambled, or hard-boiled).',
-    imageUrl: 'https://images.unsplash.com/photo-1587486913049-53fc88980cfc?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-ice-bucket',
@@ -269,7 +269,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 30,
     category: 'Kitchen Extras',
     description: 'Full bucket of clean tube ice with stainless tongs.',
-    imageUrl: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-hot-water',
@@ -277,7 +277,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 20,
     category: 'Kitchen Extras',
     description: 'Thermos carafe of boiling hot water for tea, coffee, or instant meals.',
-    imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- DRINKS (Available 24/7) ---
@@ -287,7 +287,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'Chilled canned Coca-Cola regular 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-coke-zero',
@@ -295,7 +295,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'Chilled canned Coca-Cola Zero Sugar 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-sprite',
@@ -303,7 +303,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'Chilled canned Sprite lemon-lime soda 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-royal',
@@ -311,7 +311,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'Chilled canned Royal Tru-Orange soda 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-pineapple-juice',
@@ -319,7 +319,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'Chilled Del Monte 100% pure pineapple juice in can.',
-    imageUrl: 'https://images.unsplash.com/photo-1589733955941-5eeaf752f6dd?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-c2-apple',
@@ -327,7 +327,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Drinks',
     description: 'C2 Cool & Clean bottled green tea apple flavor 500ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1556881286-fc6915169721?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-mineral-water',
@@ -335,7 +335,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Drinks',
     description: 'Purified bottled drinking water 500ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-coffee',
@@ -343,7 +343,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Drinks',
     description: 'Nescafe / Kopiko 3-in-1 coffee sachet with hot cup and water.',
-    imageUrl: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-milo',
@@ -351,7 +351,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Drinks',
     description: 'Nestle Milo chocolate malt energy drink with hot cup and water.',
-    imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-san-miguel-beer',
@@ -359,7 +359,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 90,
     category: 'Drinks',
     description: 'San Miguel Pale Pilsen 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1608270191778-999339247f07?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-san-mig-light',
@@ -367,7 +367,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 90,
     category: 'Drinks',
     description: 'San Mig Light low-calorie beer 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1608270191778-999339247f07?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-redhorse',
@@ -375,7 +375,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 90,
     category: 'Drinks',
     description: 'Red Horse Extra Strong Beer 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1584225064785-c62a8b43d148?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- MISCELLANEOUS (Available 24/7) ---
@@ -385,7 +385,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Miscellaneous',
     description: 'Nissin Cup Noodles Beef flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-cupnoodles-bulalo',
@@ -393,7 +393,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Miscellaneous',
     description: 'Nissin Cup Noodles Bulalo flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-cupnoodles-seafood',
@@ -401,7 +401,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 60,
     category: 'Miscellaneous',
     description: 'Nissin Cup Noodles Seafood flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-piatos',
@@ -409,7 +409,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 45,
     category: 'Miscellaneous',
     description: 'Jack & Jill Piattos potato chips snack pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-nova',
@@ -417,7 +417,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 45,
     category: 'Miscellaneous',
     description: 'Nova multigrain snack chips pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-pica',
@@ -425,7 +425,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 45,
     category: 'Miscellaneous',
     description: 'Pic-A assorted snack mix pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-vcut',
@@ -433,7 +433,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 45,
     category: 'Miscellaneous',
     description: 'Jack & Jill V-Cut ridged potato chips snack pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-candy',
@@ -441,7 +441,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 20,
     category: 'Miscellaneous',
     description: 'Menthol soothing candy pack (Halls or Snowbear).',
-    imageUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-marlboro-red',
@@ -449,7 +449,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 235,
     category: 'Miscellaneous',
     description: 'Marlboro Red cigarette pack (20 sticks).',
-    imageUrl: 'https://images.unsplash.com/photo-1527061011665-3652c757a4d4?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-marlboro-lights',
@@ -457,7 +457,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 235,
     category: 'Miscellaneous',
     description: 'Marlboro Lights / Gold cigarette pack (20 sticks).',
-    imageUrl: 'https://images.unsplash.com/photo-1527061011665-3652c757a4d4?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-lighter',
@@ -465,7 +465,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 35,
     category: 'Miscellaneous',
     description: 'Disposable gas lighter.',
-    imageUrl: 'https://images.unsplash.com/photo-1585336261026-78b172a392ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-condom',
@@ -473,7 +473,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 65,
     category: 'Miscellaneous',
     description: 'Lubricated premium latex condom (pack of 3).',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-sanitary-napkin',
@@ -481,7 +481,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Feminine sanitary pads with wings.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-pantiliner',
@@ -489,7 +489,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 20,
     category: 'Miscellaneous',
     description: 'Breathable daily pantiliners pack.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-feminine-wash',
@@ -497,7 +497,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Gentle intimate cleansing wash travel sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-tissue-roll',
@@ -505,7 +505,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Soft 2-ply bathroom tissue roll.',
-    imageUrl: 'https://images.unsplash.com/photo-1584556812952-905ffd02b117?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-shaving-kit',
@@ -513,7 +513,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Twin-blade disposable razor with shaving cream.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-soap-safeguard',
@@ -521,7 +521,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 35,
     category: 'Miscellaneous',
     description: 'Safeguard antibacterial white bar soap 60g.',
-    imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-shampoo',
@@ -529,7 +529,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Revitalizing hair shampoo sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-conditioner',
@@ -537,7 +537,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 25,
     category: 'Miscellaneous',
     description: 'Moisturizing hair conditioner sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-toothpaste-sachet',
@@ -545,7 +545,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 30,
     category: 'Miscellaneous',
     description: 'Colgate travel toothpaste sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1559591937-e1032397a695?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-toothbrush',
@@ -553,7 +553,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 40,
     category: 'Miscellaneous',
     description: 'Medium-soft sealed travel manual toothbrush.',
-    imageUrl: 'https://images.unsplash.com/photo-1559591937-e1032397a695?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- ROOM & BEDDING EXTRAS ---
@@ -563,7 +563,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Extras',
     description: 'Additional guest charge per night',
-    imageUrl: 'https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'extra-bed',
@@ -571,7 +571,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 250,
     category: 'Extras',
     description: 'Rollaway single mattress set',
-    imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bed-sheet',
@@ -579,7 +579,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 150,
     category: 'Extras',
     description: 'Fresh clean single/double bedsheet',
-    imageUrl: 'https://images.unsplash.com/photo-1631679706909-1844bbd07221?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'extra-bedsheet-set',
@@ -587,7 +587,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 500,
     category: 'Extras',
     description: 'Complete linen set (sheet, blanket, pillows)',
-    imageUrl: 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'pillow',
@@ -595,7 +595,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 200,
     category: 'Extras',
     description: 'Extra fluffy head pillow',
-    imageUrl: 'https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'pillow-case',
@@ -603,7 +603,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 100,
     category: 'Extras',
     description: 'Fresh replacement pillow protector',
-    imageUrl: 'https://images.unsplash.com/photo-1600121848594-d8644e57abab?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'blanket',
@@ -611,7 +611,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 100,
     category: 'Extras',
     description: 'Cozy warm thermal blanket',
-    imageUrl: 'https://images.unsplash.com/photo-1580301762395-21ce84d00bc6?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'towel',
@@ -619,7 +619,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 100,
     category: 'Extras',
     description: 'Plush high-absorbency bath towel',
-    imageUrl: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'supply-guest-kit',
@@ -627,7 +627,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 50,
     category: 'Extras',
     description: 'Complete guest amenity kit (hygiene, toiletries).',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'supply-beddings',
@@ -635,7 +635,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 200,
     category: 'Extras',
     description: 'Complete fresh beddings linen pack.',
-    imageUrl: 'https://images.unsplash.com/photo-1631679706909-1844bbd07221?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'laundry-regular',
@@ -643,7 +643,7 @@ export const POS_CATALOG: POSItem[] = [
     price: 120,
     category: 'Laundry',
     description: 'Wash, dry, and fold service. Next day delivery.',
-    imageUrl: 'https://images.unsplash.com/photo-1545173168-9f1947eebb7f?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   }
 ];
 
@@ -1091,7 +1091,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Pan-fried marinated milkfish (bangus), garlic sinangag rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-porksilog',
@@ -1101,7 +1101,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Golden crispy pork chop, garlic fried rice, and sunny-side-up egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-chicksilog',
@@ -1111,7 +1111,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Crisp seasoned fried chicken, fragrant garlic rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-tapsilog',
@@ -1121,7 +1121,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Tender marinated beef tapa, garlic sinangag, and farm-fresh fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-longsilog',
@@ -1131,7 +1131,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Savory-sweet native longganisa sausages, garlic sinangag rice, and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bf-hotsilog',
@@ -1141,7 +1141,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Breakfast',
     active: true,
     description: 'Juicy red hotdogs with fragrant garlic fried rice and fried egg.',
-    imageUrl: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- ALL TIME FAVORITES ---
@@ -1153,7 +1153,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crisp golden battered squid rings served with tartar dipping sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1604909052743-94e838986d24?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-lechon-kawali',
@@ -1163,7 +1163,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crispy deep-fried pork belly chunks served with spiced liver sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-chicharong-bulaklak',
@@ -1173,7 +1173,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crunchy deep-fried pork ruffle fat served with seasoned spicy cane vinegar.',
-    imageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-buffalo-wings',
@@ -1183,7 +1183,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crispy chicken wings tossed in rich, zesty buffalo glaze.',
-    imageUrl: 'https://images.unsplash.com/photo-1567620832903-9fc6debc209f?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-buttered-chicken',
@@ -1193,7 +1193,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Tender chicken bites sautéed in rich garlic butter sauce (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1606755962773-d324e0a13086?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-garlic-chicken',
@@ -1203,7 +1203,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crisp seasoned chicken smothered in aromatic toasted garlic bits (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-tokwat-baboy',
@@ -1213,7 +1213,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Deep-fried firm tofu and tender pork slices in seasoned soy-vinegar dressing (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-tofu',
@@ -1223,7 +1223,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crispy tofu cubes tossed with savory creamy dressing on a sizzling plate (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-sisig-egg',
@@ -1233,7 +1233,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Crispy seasoned minced pork sisig with onions, chili, and fresh egg on hot plate (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-sizzling-hotdog',
@@ -1243,7 +1243,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Sliced tender hotdogs sautéed with onions in savory sweet gravy (Hot kitchen).',
-    imageUrl: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-pancit-canton',
@@ -1253,7 +1253,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Stir-fried egg noodles with crisp vegetables, pork slices, and savory sauce.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-lomi',
@@ -1263,7 +1263,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Thick egg noodle soup with rich savory broth, egg drops, and hearty meat toppings.',
-    imageUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'fav-french-fries',
@@ -1273,7 +1273,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Favorites',
     active: true,
     description: 'Golden crispy shoestring potato fries with ketchup or mayo dip.',
-    imageUrl: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- KITCHEN EXTRAS ---
@@ -1285,7 +1285,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Kitchen Extras',
     active: true,
     description: 'Steamed fragrant white jasmine rice.',
-    imageUrl: 'https://images.unsplash.com/photo-1516684732162-798a0062be99?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-garlic-rice',
@@ -1295,7 +1295,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Kitchen Extras',
     active: true,
     description: 'Sinangag rice sautéed with toasted garlic chips.',
-    imageUrl: 'https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-egg',
@@ -1305,7 +1305,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Kitchen Extras',
     active: true,
     description: 'Farm fresh egg cooked to preference (sunny side up, scrambled, or hard-boiled).',
-    imageUrl: 'https://images.unsplash.com/photo-1587486913049-53fc88980cfc?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-ice-bucket',
@@ -1315,7 +1315,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Kitchen Extras',
     active: true,
     description: 'Full bucket of clean tube ice with stainless tongs.',
-    imageUrl: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'ext-hot-water',
@@ -1325,7 +1325,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Kitchen Extras',
     active: true,
     description: 'Thermos carafe of boiling hot water for tea, coffee, or instant meals.',
-    imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- DRINKS (Available 24/7) ---
@@ -1337,7 +1337,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Chilled canned Coca-Cola regular 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-coke-zero',
@@ -1347,7 +1347,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Chilled canned Coca-Cola Zero Sugar 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-sprite',
@@ -1357,7 +1357,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Chilled canned Sprite lemon-lime soda 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-royal',
@@ -1367,7 +1367,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Chilled canned Royal Tru-Orange soda 320ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-pineapple-juice',
@@ -1377,7 +1377,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Chilled Del Monte 100% pure pineapple juice in can.',
-    imageUrl: 'https://images.unsplash.com/photo-1589733955941-5eeaf752f6dd?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-c2-apple',
@@ -1387,7 +1387,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'C2 Cool & Clean bottled green tea apple flavor 500ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1556881286-fc6915169721?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-mineral-water',
@@ -1397,7 +1397,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Purified bottled drinking water 500ml.',
-    imageUrl: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-coffee',
@@ -1407,7 +1407,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Nescafe / Kopiko 3-in-1 coffee sachet with hot cup and water.',
-    imageUrl: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-milo',
@@ -1417,7 +1417,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Nestle Milo chocolate malt energy drink with hot cup and water.',
-    imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-san-miguel-beer',
@@ -1427,7 +1427,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'San Miguel Pale Pilsen 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1608270191778-999339247f07?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-san-mig-light',
@@ -1437,7 +1437,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'San Mig Light low-calorie beer 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1608270191778-999339247f07?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'drk-redhorse',
@@ -1447,7 +1447,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Drinks',
     active: true,
     description: 'Red Horse Extra Strong Beer 330ml bottle, ice-cold.',
-    imageUrl: 'https://images.unsplash.com/photo-1584225064785-c62a8b43d148?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- MISCELLANEOUS (Available 24/7) ---
@@ -1459,7 +1459,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Nissin Cup Noodles Beef flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-cupnoodles-bulalo',
@@ -1469,7 +1469,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Nissin Cup Noodles Bulalo flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-cupnoodles-seafood',
@@ -1479,7 +1479,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Nissin Cup Noodles Seafood flavor with hot water.',
-    imageUrl: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-piatos',
@@ -1489,7 +1489,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Jack & Jill Piattos potato chips snack pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-nova',
@@ -1499,7 +1499,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Nova multigrain snack chips pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-pica',
@@ -1509,7 +1509,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Pic-A assorted snack mix pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-vcut',
@@ -1519,7 +1519,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Jack & Jill V-Cut ridged potato chips snack pack (40g).',
-    imageUrl: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-candy',
@@ -1529,7 +1529,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Menthol soothing candy pack (Halls or Snowbear).',
-    imageUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-marlboro-red',
@@ -1539,7 +1539,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Marlboro Red cigarette pack (20 sticks).',
-    imageUrl: 'https://images.unsplash.com/photo-1527061011665-3652c757a4d4?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-marlboro-lights',
@@ -1549,7 +1549,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Marlboro Lights / Gold cigarette pack (20 sticks).',
-    imageUrl: 'https://images.unsplash.com/photo-1527061011665-3652c757a4d4?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-lighter',
@@ -1559,7 +1559,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Disposable gas lighter.',
-    imageUrl: 'https://images.unsplash.com/photo-1585336261026-78b172a392ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-condom',
@@ -1569,7 +1569,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Lubricated premium latex condom (pack of 3).',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-sanitary-napkin',
@@ -1579,7 +1579,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Feminine sanitary pads with wings.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-pantiliner',
@@ -1589,7 +1589,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Breathable daily pantiliners pack.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-feminine-wash',
@@ -1599,7 +1599,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Gentle intimate cleansing wash travel sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-tissue-roll',
@@ -1609,7 +1609,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Soft 2-ply bathroom tissue roll.',
-    imageUrl: 'https://images.unsplash.com/photo-1584556812952-905ffd02b117?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-shaving-kit',
@@ -1619,7 +1619,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Twin-blade disposable razor with shaving cream.',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-soap-safeguard',
@@ -1629,7 +1629,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Safeguard antibacterial white bar soap 60g.',
-    imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-shampoo',
@@ -1639,7 +1639,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Revitalizing hair shampoo sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-conditioner',
@@ -1649,7 +1649,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Moisturizing hair conditioner sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-toothpaste-sachet',
@@ -1659,7 +1659,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Colgate travel toothpaste sachet.',
-    imageUrl: 'https://images.unsplash.com/photo-1559591937-e1032397a695?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'misc-toothbrush',
@@ -1669,7 +1669,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Miscellaneous',
     active: true,
     description: 'Medium-soft sealed travel manual toothbrush.',
-    imageUrl: 'https://images.unsplash.com/photo-1559591937-e1032397a695?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
 
   // --- GENERAL SERVICES & EXTRAS ---
@@ -1681,7 +1681,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Additional guest charge per night',
-    imageUrl: 'https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'extra-bed',
@@ -1691,7 +1691,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Rollaway single mattress set',
-    imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'bed-sheet',
@@ -1701,7 +1701,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Fresh clean single/double bedsheet',
-    imageUrl: 'https://images.unsplash.com/photo-1631679706909-1844bbd07221?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'extra-bedsheet-set',
@@ -1711,7 +1711,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Complete bed set with mattress and linens',
-    imageUrl: 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'pillow',
@@ -1721,7 +1721,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Extra fluffy head pillow',
-    imageUrl: 'https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'pillow-case',
@@ -1731,7 +1731,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Fresh replacement pillow protector',
-    imageUrl: 'https://images.unsplash.com/photo-1600121848594-d8644e57abab?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'blanket',
@@ -1741,7 +1741,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Cozy warm thermal blanket',
-    imageUrl: 'https://images.unsplash.com/photo-1580301762395-21ce84d00bc6?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'towel',
@@ -1751,7 +1751,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Plush high-absorbency bath towel',
-    imageUrl: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'supply-guest-kit',
@@ -1761,7 +1761,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Complete guest amenity kit (hygiene, toiletries).',
-    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'supply-beddings',
@@ -1771,7 +1771,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Extras',
     active: true,
     description: 'Complete fresh beddings linen pack.',
-    imageUrl: 'https://images.unsplash.com/photo-1631679706909-1844bbd07221?auto=format&fit=crop&w=120&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'laundry-regular',
@@ -1781,7 +1781,7 @@ export const DEFAULT_BILLABLE_SERVICES: BillableService[] = [
     category: 'Laundry',
     active: true,
     description: 'Wash, dry, and fold service. Next day delivery.',
-    imageUrl: 'https://images.unsplash.com/photo-1545173168-9f1947eebb7f?auto=format&fit=crop&w=400&q=80'
+    imageUrl: 'https://placehold.co/400x300'
   },
   {
     id: 'spa-relaxation',
