@@ -4,6 +4,7 @@ import { Receipt } from '../types';
 import { Printer, Check, ArrowLeft, CornerDownRight, ChefHat, RefreshCw, Zap, DollarSign, Ticket, FileText } from 'lucide-react';
 import { formatStayDuration } from '../utils/pricing';
 import { getKitchenOrdersByReceipt, printKitchenOrder, KitchenOrder } from '../api/kitchen';
+import { reprintReceipt } from '../api/receipts';
 import { PrintableGatePass, GatePassData } from './PrintableGatePass';
 import { useToast } from './ui/Toast';
 import { printBrowserReceipt } from '../utils/printBrowserReceipt';
@@ -16,11 +17,16 @@ interface ReceiptPreviewProps {
 
 export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose, isPreliminary }) => {
   const toast = useToast();
+  const [currentReceipt, setCurrentReceipt] = useState<Receipt | null>(receipt);
   const [kitchenOrders, setKitchenOrders] = useState<KitchenOrder[]>([]);
   const [printingOrderId, setPrintingOrderId] = useState<number | null>(null);
   const [isPrintingReceipt, setIsPrintingReceipt] = useState<boolean>(false);
   const [isPrintingGatePass, setIsPrintingGatePass] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'receipt' | 'gatepass'>('receipt');
+
+  useEffect(() => {
+    setCurrentReceipt(receipt);
+  }, [receipt]);
 
   const isElectron = Boolean(window.electronAPI?.isElectron);
   const isPrelim = Boolean(isPreliminary || receipt?.receiptNo?.startsWith('PRE-'));
@@ -191,7 +197,8 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
     if (!val || val === 'N/A') return 'N/A';
     const d = new Date(val.includes(' ') && !val.includes('T') ? val.replace(' ', 'T') : val);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleString('en-US', {
+      return new Intl.DateTimeFormat('en-PH', {
+        timeZone: 'Asia/Manila',
         month: 'numeric',
         day: 'numeric',
         year: 'numeric',
@@ -199,9 +206,76 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
         minute: '2-digit',
         second: '2-digit',
         hour12: true,
-      });
+      }).format(d);
     }
     return val;
+  };
+
+  const maskDiscountCard = (cardId?: string) => {
+    if (!cardId) return '';
+    const trimmed = cardId.trim();
+    if (trimmed.length <= 4) return trimmed;
+    return `****-${trimmed.slice(-4)}`;
+  };
+
+  const activeReceipt = currentReceipt || receipt;
+
+  const displayTimeConsumed = (() => {
+    if (!activeReceipt) return null;
+    if (activeReceipt.timeConsumed) return activeReceipt.timeConsumed;
+    if (activeReceipt.consumedMinutes != null) {
+      const minutes = activeReceipt.consumedMinutes;
+      const hrs = Math.floor(minutes / 60);
+      const remMin = minutes % 60;
+      if (hrs > 0 && remMin > 0) return `${hrs} hr ${remMin} mins`;
+      if (hrs > 0 && remMin === 0) return `${hrs} hr`;
+      return `${remMin} mins`;
+    }
+    if (activeReceipt.checkIn && activeReceipt.checkOut) {
+      const cin = new Date(activeReceipt.checkIn);
+      const cout = new Date(activeReceipt.checkOut);
+      if (!isNaN(cin.getTime()) && !isNaN(cout.getTime())) {
+        const diffMs = cout.getTime() - cin.getTime();
+        const minutes = Math.max(0, Math.floor(diffMs / 60000));
+        const hrs = Math.floor(minutes / 60);
+        const remMin = minutes % 60;
+        if (hrs > 0 && remMin > 0) return `${hrs} hr ${remMin} mins`;
+        if (hrs > 0 && remMin === 0) return `${hrs} hr`;
+        return `${remMin} mins`;
+      }
+    }
+    return null;
+  })();
+
+  const displayTendered = activeReceipt
+    ? (activeReceipt.amountTendered != null
+      ? activeReceipt.amountTendered
+      : activeReceipt.amountTenderedCents != null
+      ? activeReceipt.amountTenderedCents / 100
+      : activeReceipt.paymentMethod === 'GCASH'
+      ? activeReceipt.total
+      : activeReceipt.total)
+    : 0;
+
+  const displayChange = activeReceipt
+    ? (activeReceipt.changeAmount != null
+      ? activeReceipt.changeAmount
+      : activeReceipt.changeCents != null
+      ? activeReceipt.changeCents / 100
+      : Math.max(0, displayTendered - activeReceipt.total))
+    : 0;
+
+  const handlePrintOrReprint = async () => {
+    if (activeReceipt?.receiptNo && !activeReceipt.receiptNo.startsWith('PRE-') && !isPrelim) {
+      try {
+        const updated = await reprintReceipt(activeReceipt.receiptNo);
+        setCurrentReceipt(updated);
+        toast.info('Official Reprint', `Reprint #${updated.reprintCount || 1} logged.`);
+      } catch (err: any) {
+        console.warn('Reprint log note:', err?.message);
+      }
+    }
+    await handlePrint();
   };
 
   return (
@@ -281,7 +355,7 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
 
         <div className="flex flex-col gap-2.5">
           <button
-            onClick={handlePrint}
+            onClick={handlePrintOrReprint}
             disabled={isPrintingReceipt}
             className="w-full bg-primary hover:bg-primary-light text-white font-sans text-xs font-bold py-3 rounded-xl cursor-pointer transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
           >
@@ -294,8 +368,8 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
               {isPrintingReceipt
                 ? 'Printing 80mm...'
                 : isElectron
-                ? 'Print 80mm Receipt (Silent)'
-                : 'Print 80mm Thermal Receipt'}
+                ? (activeReceipt.reprintCount ? `Reprint 80mm Receipt (#${activeReceipt.reprintCount + 1})` : 'Print 80mm Receipt (Silent)')
+                : (activeReceipt.reprintCount ? `Reprint 80mm Receipt (#${activeReceipt.reprintCount + 1})` : 'Print 80mm Thermal Receipt')}
             </span>
           </button>
 
@@ -421,6 +495,21 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
 
           {/* Receipt Body - High Contrast Monochrome Thermal Layout */}
           <div className="font-mono text-[11px] text-black pt-4 pb-2 space-y-4">
+            {/* Reprint or Void Watermark/Banner */}
+            {activeReceipt.status === 'void' && (
+              <div className="p-2 border-2 border-black bg-white text-center font-bold uppercase tracking-wider text-xs">
+                *** VOIDED RECEIPT ***
+                {activeReceipt.voidReason && (
+                  <div className="text-[9px] font-normal not-italic mt-0.5">{activeReceipt.voidReason}</div>
+                )}
+              </div>
+            )}
+            {activeReceipt.reprintCount && activeReceipt.reprintCount > 0 ? (
+              <div className="p-1 border border-black bg-white text-center font-bold uppercase tracking-wider text-[10px]">
+                [OFFICIAL REPRINT #{activeReceipt.reprintCount}]
+              </div>
+            ) : null}
+
             {/* Header Brand */}
             <div className="text-center space-y-1.5">
               <h3 className="font-display font-extrabold text-sm tracking-tight text-black leading-none uppercase">
@@ -440,27 +529,27 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
             <div className="space-y-1 text-[10px] uppercase text-black">
               <div className="flex justify-between">
                 <span>RECEIPT NO:</span>
-                <span className="font-bold">{receipt.receiptNo}</span>
+                <span className="font-bold">{activeReceipt.receiptNo}</span>
               </div>
               <div className="flex justify-between">
                 <span>DATE/TIME:</span>
-                <span>{formatDisplayDate(receipt.dateTime)}</span>
+                <span>{formatDisplayDate(activeReceipt.dateTime)}</span>
               </div>
               <div className="flex justify-between">
                 <span>CASHIER OPERATOR:</span>
-                <span className="font-bold">{receipt.cashierId} // FD-01</span>
+                <span className="font-bold">{activeReceipt.cashierId} // FD-01</span>
               </div>
               <div className="flex justify-between font-bold">
                 <span>ROOM NUMBER:</span>
-                <span>ROOM {receipt.roomNumber} ({receipt.roomType})</span>
+                <span>ROOM {activeReceipt.roomNumber} ({activeReceipt.roomType})</span>
               </div>
               <div className="flex justify-between items-start">
                 <span className="shrink-0 pr-1">GUEST:</span>
-                <span className="font-bold break-all text-right flex-1">{receipt.guestName}</span>
+                <span className="font-bold break-all text-right flex-1">{activeReceipt.guestName}</span>
               </div>
               <div className="flex justify-between font-bold">
                 <span>DECLARED STAY:</span>
-                <span>{receipt.stayDuration || (receipt.rateSelected ? formatStayDuration(receipt.rateSelected) : 'Standard Stay')}</span>
+                <span>{activeReceipt.stayDuration || (activeReceipt.rateSelected ? formatStayDuration(activeReceipt.rateSelected) : 'Standard Stay')}</span>
               </div>
             </div>
 
@@ -471,16 +560,22 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
             <div className="text-[10px] space-y-1 p-2 rounded border border-black text-black">
               <div className="flex items-start gap-1 justify-between">
                 <span className="font-bold">IN:</span>
-                <span className="font-medium">{formatDisplayDate(receipt.checkIn)}</span>
+                <span className="font-medium">{formatDisplayDate(activeReceipt.checkIn)}</span>
               </div>
               <div className="flex items-start gap-1 justify-between">
                 <span className="font-bold">OUT:</span>
-                <span className="font-medium">{formatDisplayDate(receipt.checkOut)}</span>
+                <span className="font-medium">{formatDisplayDate(activeReceipt.checkOut)}</span>
               </div>
-              {receipt.stayDuration && (
+              {displayTimeConsumed ? (
+                <div className="flex items-start gap-1 justify-between pt-0.5 border-t border-dashed border-black font-bold">
+                  <span>TIME CONSUMED:</span>
+                  <span>{displayTimeConsumed}</span>
+                </div>
+              ) : null}
+              {activeReceipt.stayDuration && (
                 <div className="flex items-start gap-1 justify-between pt-0.5 border-t border-dashed border-black text-[9px]">
                   <span className="font-bold">RATE BLOCK:</span>
-                  <span className="font-bold">{receipt.stayDuration}</span>
+                  <span className="font-bold">{activeReceipt.stayDuration}</span>
                 </div>
               )}
             </div>
@@ -495,7 +590,7 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
               </div>
 
               <div className="space-y-2">
-                {receipt.items.map((item, idx) => (
+                {activeReceipt.items.map((item, idx) => (
                   <div key={idx} className="flex flex-col gap-0.5">
                     <div className="flex justify-between font-medium items-start">
                       <span className="flex-1 pr-2 break-words">{item.description}</span>
@@ -514,56 +609,84 @@ export const ReceiptPreview: React.FC<ReceiptPreviewProps> = ({ receipt, onClose
             {/* Separator */}
             <div className="border-t border-dashed border-black my-2.5 print:border-black" />
 
-            {/* Totals */}
+            {/* Totals Section strictly ordered per Task 4 */}
             <div className="space-y-1.5 uppercase text-xs text-black">
+              {/* 1. Subtotal */}
               <div className="flex justify-between">
                 <span>SUBTOTAL:</span>
-                <span>₱{receipt.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span>₱{activeReceipt.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              {receipt.discount && receipt.discount > 0 && (
+
+              {/* 2. Discount with masked card number */}
+              {activeReceipt.discount && activeReceipt.discount > 0 ? (
                 <>
                   <div className="flex justify-between font-semibold">
-                    <span>DISCOUNT ({receipt.discountType === 'DC' ? 'DISCOUNT CARD' : 'SENIOR / PWD'}):</span>
-                    <span>-₱{receipt.discount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>DISCOUNT ({activeReceipt.discountType === 'DC' ? 'DISCOUNT CARD' : 'SENIOR / PWD'}):</span>
+                    <span>-₱{activeReceipt.discount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
-                  {receipt.discountIdRef && (
+                  {(activeReceipt.discountIdRef || activeReceipt.discountCardId) && (
                     <div className="flex justify-between text-[10px]">
-                      <span>{receipt.discountType === 'DC' ? 'DISCOUNT CARD #:' : 'SC/PWD ID REF:'}</span>
-                      <span className="font-bold break-all">{receipt.discountIdRef}</span>
+                      <span>{activeReceipt.discountType === 'DC' ? 'CARD # (MASKED):' : 'SC/PWD ID (MASKED):'}</span>
+                      <span className="font-bold break-all">{maskDiscountCard(activeReceipt.discountIdRef || activeReceipt.discountCardId)}</span>
                     </div>
                   )}
                 </>
-              )}
+              ) : null}
+
+              {/* 3. TOTAL AMOUNT DUE (Large font, bold double-border styling for thermal rolls) */}
+              <div className="border-t-2 border-b-2 border-black py-1.5 my-2">
+                <div className="flex justify-between items-baseline text-sm md:text-base font-black tracking-tight leading-tight">
+                  <span className="font-bold">TOTAL AMOUNT DUE:</span>
+                  <span className="font-display font-black text-base md:text-lg">
+                    ₱{activeReceipt.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* 4. Settlement Method */}
               <div className="flex justify-between">
                 <span>SETTLEMENT METHOD:</span>
-                <span className="font-bold">{receipt.paymentMethod || 'CASH'}</span>
+                <span className="font-bold">{activeReceipt.paymentMethod || 'CASH'}</span>
               </div>
-              {receipt.paymentMethod === 'MIXED' && (
+              {activeReceipt.paymentMethod === 'MIXED' && (
                 <div className="space-y-0.5 border-l border-black pl-2 mt-0.5 text-[10px] lowercase font-mono">
                   <div className="flex justify-between">
                     <span>- cash paid:</span>
-                    <span>₱{(receipt.cashAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>₱{(activeReceipt.cashAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>- gcash paid:</span>
-                    <span>₱{(receipt.gcashAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>₱{(activeReceipt.gcashAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               )}
-              {receipt.gcashRef && (
-                <div className="flex justify-between font-mono">
+              {activeReceipt.gcashRef && (
+                <div className="flex justify-between font-mono text-[10px]">
                   <span>GCASH REF NO:</span>
-                  <span className="font-bold break-all">{receipt.gcashRef}</span>
+                  <span className="font-bold break-all">{activeReceipt.gcashRef}</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm font-extrabold border-t border-black pt-1.5">
-                <span>TOTAL AMOUNT DUE:</span>
-                <span className="font-display">₱{receipt.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+
+              {/* 5. Amount Tendered */}
+              <div className="flex justify-between">
+                <span>AMOUNT TENDERED:</span>
+                <span className="font-bold">₱{displayTendered.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              {receipt.depositBalance !== undefined && receipt.depositBalance > 0 && (
+
+              {/* 6. CHANGE (Large or Bold) */}
+              <div className="flex justify-between font-bold text-xs pt-1 border-t border-dashed border-black">
+                <span className="font-black text-xs">CHANGE:</span>
+                <span className="font-black text-sm">₱{displayChange.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+
+              {/* 7. Deposit Line / Resolution */}
+              {(activeReceipt.depositNumber || activeReceipt.depositBalance !== undefined) && (
                 <div className="flex justify-between text-xs font-bold border-t border-black pt-1.5 mt-1">
-                  <span>DEPOSIT BALANCE:</span>
-                  <span className="font-display">₱{receipt.depositBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span>DEPOSIT {activeReceipt.depositNumber ? `DEP-${activeReceipt.depositNumber.replace(/^DEP-/, '')}` : ''}:</span>
+                  <span className="font-display">
+                    ₱{(activeReceipt.depositAmount ?? activeReceipt.depositBalance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {activeReceipt.depositStatus ? ` (${activeReceipt.depositStatus})` : ''}
+                  </span>
                 </div>
               )}
             </div>

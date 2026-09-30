@@ -13,6 +13,21 @@ interface PrePrintBillModalProps {
   onClose: () => void;
 }
 
+function maskRef(ref?: string): string {
+  if (!ref) return '';
+  const t = ref.trim();
+  if (t.length <= 4) return t;
+  return `****-${t.slice(-4)}`;
+}
+
+function maskSubtext(sub?: string): string {
+  if (!sub) return '';
+  return sub.replace(/\[Card #: .*?\]|\[ID: .*?\]/g, (m) => {
+    const last4 = m.replace(/[^A-Za-z0-9]/g, '').slice(-4);
+    return m.includes('Card') ? `[Card #: ****-${last4}]` : `[ID: ****-${last4}]`;
+  });
+}
+
 export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
   receipt,
   isOpen,
@@ -311,7 +326,7 @@ export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
                           </span>
                         </div>
                         <span className="text-[10px] text-charcoal/40 flex items-center gap-1 pl-1">
-                          <CornerDownRight size={8} className="shrink-0" /> <span className="break-all">{item.subtext}</span>
+                          <CornerDownRight size={8} className="shrink-0" /> <span className="break-all">{maskSubtext(item.subtext)}</span>
                         </span>
                       </div>
                     ))}
@@ -336,7 +351,7 @@ export const PrePrintBillModal: React.FC<PrePrintBillModalProps> = ({
                       {receipt.discountIdRef && (
                         <div className="flex justify-between text-[10px] text-charcoal/50">
                           <span>{receipt.discountType === 'DC' ? 'DISCOUNT CARD #:' : 'SC/PWD ID REF:'}</span>
-                          <span className="font-bold break-all">{receipt.discountIdRef}</span>
+                          <span className="font-bold break-all">{maskRef(receipt.discountIdRef)}</span>
                         </div>
                       )}
                     </>
