@@ -46,18 +46,25 @@ export const DISCOUNT_RATES_DATA: DiscountRateEntry[] = [
 export function normalizeDiscountType(val?: string | null): DiscountType | null {
   if (!val) return null;
   const upper = String(val).trim().toUpperCase();
+  if (!upper) return null;
   if (
     upper === 'SENIOR' ||
     upper === 'PWD' ||
-    upper === 'S' ||
+    upper === 'SENIOR CITIZEN' ||
+    upper === 'PERSON WITH DISABILITY' ||
     upper === 'S.' ||
-    upper.startsWith('S. ') ||
-    upper.includes('SENIOR') ||
-    upper.includes('PWD')
+    upper.startsWith('SENIOR ') ||
+    upper.startsWith('PWD ') ||
+    upper.startsWith('S. ')
   ) {
     return 'SENIOR';
   }
-  if (upper === 'DC' || upper === 'DISCOUNT_CARD' || upper.includes('DISCOUNT CARD') || upper.includes('CARD')) {
+  if (
+    upper === 'DC' ||
+    upper === 'DISCOUNT CARD' ||
+    upper === 'DISCOUNT_CARD' ||
+    upper === 'DISCOUNT-CARD'
+  ) {
     return 'DC';
   }
   return null;
@@ -66,15 +73,31 @@ export function normalizeDiscountType(val?: string | null): DiscountType | null 
 export function normalizeRoomTier(tierOrRoomType?: string | null): RoomTier | null {
   if (!tierOrRoomType) return null;
   const s = String(tierOrRoomType).trim().toUpperCase();
+  if (!s) return null;
 
-  if (s === 'CLASSIC' || s === 'STANDARD' || s.includes('CLASSIC') || s.includes('STANDARD')) {
-    return 'CLASSIC';
+  // Exact match first. Order VIP/SUITE before PREMIUM/DELUXE before
+  // CLASSIC/STANDARD to avoid e.g. 'DELUXE SUITE' misrouting to PREMIUM.
+  if (s === 'VIP' || s === 'SUITE') {
+    return 'VIP';
   }
-  if (s === 'PREMIUM' || s === 'DELUXE' || s.includes('PREMIUM') || s.includes('DELUXE')) {
+  if (s === 'PREMIUM' || s === 'DELUXE') {
     return 'PREMIUM';
   }
-  if (s === 'VIP' || s === 'SUITE' || s.includes('VIP') || s.includes('SUITE')) {
+  if (s === 'CLASSIC' || s === 'STANDARD') {
+    return 'CLASSIC';
+  }
+
+  // Word-boundary match: split on non-alphanumerics so e.g. 'SUBSTANDARD'
+  // does NOT match 'STANDARD'. Same priority order as exact match.
+  const tokens = s.split(/[^A-Z0-9]+/).filter(Boolean);
+  if (tokens.includes('VIP') || tokens.includes('SUITE')) {
     return 'VIP';
+  }
+  if (tokens.includes('PREMIUM') || tokens.includes('DELUXE')) {
+    return 'PREMIUM';
+  }
+  if (tokens.includes('CLASSIC') || tokens.includes('STANDARD')) {
+    return 'CLASSIC';
   }
 
   return null;
@@ -82,22 +105,42 @@ export function normalizeRoomTier(tierOrRoomType?: string | null): RoomTier | nu
 
 export function normalizeStayDuration(duration?: string | null): StayDuration | null {
   if (!duration) return null;
-  const s = String(duration).trim().toUpperCase();
+  const s = String(duration).trim().toUpperCase().replace(/\s+/g, ' ');
+  if (!s) return null;
 
-  if (s === '3H' || s === '3HR' || s === '3' || s === '3S' || s === '3HRS' || s.startsWith('3H') || s.startsWith('3 HR') || s.includes('3 HOUR')) {
-    return '3HR';
+  switch (s) {
+    case '3':
+    case '3H':
+    case '3HR':
+    case '3HRS':
+    case '3 HR':
+    case '3 HRS':
+      return '3HR';
+    case '6':
+    case '6H':
+    case '6HR':
+    case '6HRS':
+    case '6 HR':
+    case '6 HRS':
+      return '6HR';
+    case '12':
+    case '12H':
+    case '12HR':
+    case '12HRS':
+    case '12 HR':
+    case '12 HRS':
+      return '12HR';
+    case '24':
+    case '24H':
+    case '24HR':
+    case '24HRS':
+    case '24 HR':
+    case '24 HRS':
+      return '24HR';
+    default:
+      // Explicitly unmapped: promo/custom/1h/open_time and any other variant.
+      return null;
   }
-  if (s === '6H' || s === '6HR' || s === '6' || s === '6S' || s === '6HRS' || s.startsWith('6H') || s.startsWith('6 HR') || s.includes('6 HOUR')) {
-    return '6HR';
-  }
-  if (s === '12H' || s === '12HR' || s === '12' || s === '12S' || s === '12HRS' || s.startsWith('12H') || s.startsWith('12 HR') || s.includes('12 HOUR')) {
-    return '12HR';
-  }
-  if (s === '24H' || s === '24HR' || s === '24' || s === '24S' || s === '24HRS' || s.startsWith('24H') || s.startsWith('24 HR') || s.includes('24 HOUR')) {
-    return '24HR';
-  }
-
-  return null;
 }
 
 const LOOKUP_MAP = new Map<string, number>();
