@@ -31,6 +31,24 @@ function requireAdminOwner(req: Request, res: Response): { username: string } | 
   return { username: operator.username };
 }
 
+export async function logReportExport(
+  operator: string,
+  reportType: string,
+  filterDetails: string
+): Promise<void> {
+  try {
+    const auditId = `audit-exp-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const timestamp = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+       VALUES (?, ?, ?, 'EXPORT_GENERATED', ?)`,
+      [auditId, timestamp, operator, `Generated ${reportType} export. Range/Filters: ${filterDetails}`]
+    );
+  } catch (err) {
+    console.warn('⚠️ logReportExport warning:', err);
+  }
+}
+
 function mondayToSunday(weekStart: string): { start: string; end: string } {
   const d = new Date(`${weekStart}T00:00:00`);
   const end = new Date(d);
@@ -42,6 +60,13 @@ function mondayToSunday(weekStart: string): { start: string; end: string } {
 function money(v: any): number {
   const n = Number(v || 0);
   return isNaN(n) ? 0 : Math.round(n * 100) / 100;
+}
+
+// Neutralize CSV/Excel formula injection: prefix =, +, -, @ with apostrophe.
+function safeCell(v: any): any {
+  if (typeof v !== 'string') return v;
+  if (/^[=+\-@\t\r]/.test(v)) return `'${v}`;
+  return v;
 }
 
 function styleHeaderRow(ws: ExcelJS.Worksheet, rowNumber: number, colCount: number): void {
@@ -127,7 +152,7 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
     bookings,
     transfers,
   ] = await Promise.all([
-    tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? ORDER BY date_time ASC`, [start, `${end}T23:59:59.999Z`]),
+    tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? AND (status IS NULL OR status = 'valid') AND receipt_no NOT LIKE 'FCE-%' ORDER BY date_time ASC`, [start, `${end}T23:59:59.999Z`]),
     tryQuery(`SELECT * FROM weekly_shift_entries WHERE date BETWEEN ? AND ? ORDER BY date ASC, shift_type ASC`, [start, end]),
     tryQuery(`SELECT * FROM weekly_expenses WHERE week_start = ?`, [weekStart]),
     tryQuery(`SELECT * FROM gcash_entries WHERE date BETWEEN ? AND ? ORDER BY date ASC`, [start, end]),
@@ -281,20 +306,20 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
     for (const r of receipts) {
       const items = safeParseItems(r.items);
       ws.addRow({
-        'RECEIPT NO': r.receipt_no,
+        'RECEIPT NO': safeCell(r.receipt_no),
         'DATE & TIME': r.date_time,
-        ROOM: r.room_number || 'POS',
-        GUEST: r.guest_name || 'Walk-In',
+        ROOM: safeCell(r.room_number || 'POS'),
+        GUEST: safeCell(r.guest_name || 'Walk-In'),
         PAYMENT: r.payment_method,
         CASH: money(r.cash_amount),
         GCASH: money(r.gcash_amount),
-        'GCASH REF': r.gcash_ref || '-',
+        'GCASH REF': safeCell(r.gcash_ref || '-'),
         SUBTOTAL: money(r.subtotal),
         TOTAL: money(r.total),
         'DISCOUNT TYPE': r.discount_type || (items.some((i) => money(i.amount) < 0) ? 'LEGACY (in-line)' : '-'),
         DISCOUNT: money(r.discount_amount),
-        'DISC REF': r.discount_id_ref || '-',
-        CASHIER: r.cashier_id || '-',
+        'DISC REF': safeCell(r.discount_id_ref || '-'),
+        CASHIER: safeCell(r.cashier_id || '-'),
       });
     }
     const totalRow = ws.addRow({
@@ -318,9 +343,9 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
       const amt = money(d.amount_centavos) / 100;
       running = Math.round((running + (d.direction === 'IN' ? amt : -amt)) * 100) / 100;
       ws.addRow({
-        ID: d.id, CREATED: d.created_at, 'GUEST ID': d.guest_identifier, GUEST: d.guest_name || '-',
-        DIR: d.direction, AMOUNT: amt, METHOD: d.payment_method || '-', ROOM: d.room_number || '-',
-        RECEIPT: d.receipt_no || '-', OPERATOR: d.operator, NOTES: d.notes || '-',
+        ID: safeCell(d.id), CREATED: d.created_at, 'GUEST ID': safeCell(d.guest_identifier), GUEST: safeCell(d.guest_name || '-'),
+        DIR: d.direction, AMOUNT: amt, METHOD: d.payment_method || '-', ROOM: safeCell(d.room_number || '-'),
+        RECEIPT: safeCell(d.receipt_no || '-'), OPERATOR: safeCell(d.operator), NOTES: safeCell(d.notes || '-'),
       });
     }
     const totalRow = ws.addRow({ ID: `BALANCE (IN ${Math.round(depositIn * 100) / 100} − OUT ${Math.round(depositOut * 100) / 100})`, AMOUNT: Math.round(running * 100) / 100 });
@@ -497,7 +522,7 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
     ws.columns = [{ header: 'TIMESTAMP', key: 'TIMESTAMP', width: 22 }, { header: 'OPERATOR', key: 'OPERATOR', width: 18 }, { header: 'ACTION', key: 'ACTION', width: 24 }, { header: 'DETAILS', key: 'DETAILS', width: 90 }];
     styleHeaderRow(ws, 1, headers.length);
     for (const a of auditRows) {
-      ws.addRow({ TIMESTAMP: a.timestamp, OPERATOR: a.operator, ACTION: a.action, DETAILS: a.details || '-' });
+      ws.addRow({ TIMESTAMP: a.timestamp, OPERATOR: safeCell(a.operator), ACTION: a.action, DETAILS: safeCell(a.details || '-') });
     }
     if (auditRows.length === 0) ws.addRow({ TIMESTAMP: 'No audit entries in this period' });
   }
@@ -519,17 +544,17 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
     styleHeaderRow(ws, r0, headers.length);
     for (const t of transfers) {
       ws.addRow({
-        'TRANSFER ID': t.id,
+        'TRANSFER ID': safeCell(t.id),
         TIMESTAMP: t.transferred_at,
         'SOURCE ROOM': `Room ${t.source_room_number}`,
         'SOURCE TIER': t.source_tier || '-',
         'TARGET ROOM': `Room ${t.target_room_number}`,
         'TARGET TIER': t.target_tier || '-',
-        'GUEST NAME': t.guest_name,
+        'GUEST NAME': safeCell(t.guest_name),
         'RATE / DURATION': t.rate_selected || '-',
-        REASON: t.reason,
-        'TRANSFERRED BY': t.transferred_by,
-        NOTES: t.notes || '-',
+        REASON: safeCell(t.reason),
+        'TRANSFERRED BY': safeCell(t.transferred_by),
+        NOTES: safeCell(t.notes || '-'),
       });
     }
     if (transfers.length === 0) {
@@ -539,6 +564,7 @@ router.get('/executive-workbook', requireAuth, asyncHandler(async (req: Request,
   }
 
   const buffer = await wb.xlsx.writeBuffer();
+  await logReportExport(admin.username, 'Executive Financial Workbook', `weekStart=${weekStart}`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Sedona_Court_DB_Authoritative_Audit_${weekStart}.xlsx"`);
   res.setHeader('X-Export-Control-No', controlNo);
@@ -559,7 +585,7 @@ router.get('/transactions-ledger', requireAuth, asyncHandler(async (req: Request
   const paymentMethod = String(req.query.paymentMethod || 'ALL').toUpperCase();
   const cashier = String(req.query.cashier || '').toLowerCase();
 
-  let receipts = await tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? ORDER BY date_time ASC`, [from, `${to}T23:59:59.999Z`]);
+  let receipts = await tryQuery(`SELECT * FROM receipts WHERE date_time >= ? AND date_time <= ? AND (status IS NULL OR status = 'valid') AND receipt_no NOT LIKE 'FCE-%' ORDER BY date_time ASC`, [from, `${to}T23:59:59.999Z`]);
   if (['CASH', 'GCASH', 'MIXED'].includes(paymentMethod)) {
     receipts = receipts.filter((r) => String(r.payment_method || '').toUpperCase() === paymentMethod);
   }
@@ -608,6 +634,7 @@ router.get('/transactions-ledger', requireAuth, asyncHandler(async (req: Request
   totalRow.font = { bold: true };
 
   const buffer = await wb.xlsx.writeBuffer();
+  await logReportExport(admin.username, 'Transactions Ledger Excel', `from=${from}, to=${to}, paymentMethod=${paymentMethod}, cashier=${cashier || 'ALL'}`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Sedona_Court_DB_Ledger_${from}_to_${to}.xlsx"`);
   res.setHeader('X-Export-Control-No', controlNo);
@@ -741,9 +768,16 @@ function splitReceiptLines(r: any, serviceCategoryByName: Map<string, string>): 
     hours: stayHours(r.check_in, r.check_out),
     roomBill, kitchen, drinks, miscell, extras,
     dcDiscount, seniorDiscount,
-    discountRef: String(r.discount_id_ref || ''),
+    discountRef: maskRef(String(r.discount_id_ref || '')),
     payment: money(r.total),
   };
+}
+
+function maskRef(ref: string): string {
+  const t = String(ref || '').trim();
+  if (!t || t === '-') return '';
+  if (t.length <= 4) return t;
+  return `****-${t.slice(-4)}`;
 }
 
 const SHIFT_FORM_HEADERS = [
@@ -758,7 +792,7 @@ function buildShiftFormSheet(
   title: string,
   lines: ShiftFormLine[],
   footer: { date: string; shift: string; cashier: string; toCashier: string; expenses: Array<{ description: string; amount: number }>; remarks: string },
-  opts: { transferHeader: boolean; notice?: string }
+  opts: { transferHeader: boolean; notice?: string; overflowTotals?: Record<string, number> }
 ): void {
   const ws = wb.addWorksheet(title);
   ws.columns = [
@@ -869,7 +903,28 @@ function buildShiftFormSheet(
     top: { style: 'double' }, bottom: { style: 'thin' },
     left: { style: 'thin' }, right: { style: 'thin' },
   };
-  r += 2;
+  r += 1;
+
+  // Full-shift totals (all receipts, not just the 30 paper rows) when truncated
+  if (opts.overflowTotals) {
+    const t = opts.overflowTotals;
+    ws.getCell(`A${r}`).value = `FULL-SHIFT TOTAL (${t.count} receipts):`;
+    ws.getCell(`A${r}`).font = { bold: true };
+    const fullVals: Record<string, number> = {
+      H: t.roomBill || 0, I: t.kitchen || 0, J: t.drinks || 0, K: t.miscell || 0,
+      L: t.extras || 0, M: t.dcDiscount || 0, N: t.seniorDiscount || 0, R: t.payment || 0,
+    };
+    for (const [col, val] of Object.entries(fullVals)) {
+      const cell = ws.getCell(`${col}${r}`);
+      cell.value = val;
+      cell.numFmt = '#,##0.00';
+      cell.font = { bold: true };
+      cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+    }
+    ws.getCell(`A${r}`).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+    r += 1;
+  }
+  r += 1;
 
   // Footer (template rows 36–38/39)
   const fr = r;
@@ -953,7 +1008,7 @@ router.get('/shift-forms', requireAuth, asyncHandler(async (req: Request, res: R
 
   const [receipts, services, expenses, tasks] = await Promise.all([
     tryQuery(
-      `SELECT * FROM receipts WHERE date_time >= ? AND date_time < ? AND receipt_no NOT LIKE 'FCE-%' ORDER BY date_time ASC`,
+      `SELECT * FROM receipts WHERE date_time >= ? AND date_time < ? AND receipt_no NOT LIKE 'FCE-%' AND (status IS NULL OR status = 'valid') ORDER BY date_time ASC`,
       [start, end]
     ),
     tryQuery(`SELECT name, category FROM billable_services WHERE is_deleted = 0`),
@@ -971,8 +1026,19 @@ router.get('/shift-forms', requireAuth, asyncHandler(async (req: Request, res: R
   const shown = lines.slice(0, CAP);
   const truncated = lines.length - shown.length;
   const notice = truncated > 0
-    ? `NOTE: showing first ${CAP} of ${lines.length} receipts — ${truncated} beyond paper capacity (see ledger export for the full list).`
+    ? `NOTE: showing first ${CAP} of ${lines.length} receipts — ${truncated} beyond paper capacity (see FULL-SHIFT TOTAL row + ledger export for the full list).`
     : undefined;
+  const overflowTotals = truncated > 0 ? {
+    count: lines.length,
+    roomBill: lines.reduce((s, l) => s + (l.roomBill || 0), 0),
+    kitchen: lines.reduce((s, l) => s + (l.kitchen || 0), 0),
+    drinks: lines.reduce((s, l) => s + (l.drinks || 0), 0),
+    miscell: lines.reduce((s, l) => s + (l.miscell || 0), 0),
+    extras: lines.reduce((s, l) => s + (l.extras || 0), 0),
+    dcDiscount: lines.reduce((s, l) => s + (l.dcDiscount || 0), 0),
+    seniorDiscount: lines.reduce((s, l) => s + (l.seniorDiscount || 0), 0),
+    payment: lines.reduce((s, l) => s + (l.payment || 0), 0),
+  } : undefined;
 
   let remarks = tasks.map((t) => String(t.text || '').trim()).filter(Boolean).join('; ');
   if (expenses.length > 2) {
@@ -996,11 +1062,12 @@ router.get('/shift-forms', requireAuth, asyncHandler(async (req: Request, res: R
   wb.created = new Date();
 
   if (!transferOnly) {
-    buildShiftFormSheet(wb, 'CASHIER TRANSACTION FORM', shown, footer, { transferHeader: false, notice });
+    buildShiftFormSheet(wb, 'CASHIER TRANSACTION FORM', shown, footer, { transferHeader: false, notice, overflowTotals });
   }
-  buildShiftFormSheet(wb, 'SHIFT TRANSFER FORM', shown, footer, { transferHeader: true, notice });
+  buildShiftFormSheet(wb, 'SHIFT TRANSFER FORM', shown, footer, { transferHeader: true, notice, overflowTotals });
 
   const buffer = await wb.xlsx.writeBuffer();
+  await logReportExport(staff.username, 'Shift Paper Forms', `date=${dateStr}, shift=${shift}`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader(
     'Content-Disposition',

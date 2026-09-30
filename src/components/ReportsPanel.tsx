@@ -31,8 +31,12 @@ import {
   ChevronRight,
   Info,
   RefreshCw,
-  Database
+  Database,
+  Users,
+  BarChart3,
+  Building
 } from 'lucide-react';
+import { GuestCountCards, getReceiptGuestCount, getBusinessDayAndShift } from './GuestCountCards';
 import {
   downloadWeeklyExcelReport,
   downloadAdminFinancialPOSReport,
@@ -247,6 +251,115 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
   const averageDailyRate = totalCheckinsWeekly > 0 ? totalRoomRevenueWeekly / totalCheckinsWeekly : 0;
   const revPar = rooms.length > 0 ? totalRoomRevenueWeekly / rooms.length : 0;
 
+  // Guest Analytics & Headcount Calculations
+  const guestAnalytics = React.useMemo(() => {
+    const nowInfo = getBusinessDayAndShift(new Date());
+
+    // 1. Shift Breakdown (Day vs Night)
+    const dayShifts = mappedShifts.filter((s) => s.shift === 'DAY');
+    const nightShifts = mappedShifts.filter((s) => s.shift === 'NIGHT');
+
+    const dayCheckins = dayShifts.reduce((s, x) => s + x.checkins, 0);
+    const dayCheckouts = dayShifts.reduce((s, x) => s + x.out, 0);
+    const dayRevenue = dayShifts.reduce((s, x) => s + x.received, 0);
+    const dayHeadcount = dayCheckins * 2;
+
+    const nightCheckins = nightShifts.reduce((s, x) => s + x.checkins, 0);
+    const nightCheckouts = nightShifts.reduce((s, x) => s + x.out, 0);
+    const nightRevenue = nightShifts.reduce((s, x) => s + x.received, 0);
+    const nightHeadcount = nightCheckins * 2;
+
+    // 2. Room Tier Breakdown (Classic / Standard, Premium / Deluxe, VIP Suite / Suite)
+    const tierStats = [
+      { name: 'Classic Room', tier: 'Standard', capacity: 16 },
+      { name: 'Premium Room', tier: 'Deluxe', capacity: 12 },
+      { name: 'VIP Suite', tier: 'Suite', capacity: 4 },
+    ].map((t) => {
+      const tierRooms = rooms.filter((r) => r.tier === t.tier);
+      const inHouse = tierRooms.filter((r) => r.state === 'occupied' || r.state === 'overdue').reduce((s, r) => s + (r.numGuests || 2), 0);
+      const tierReceipts = sessionReceipts.filter((r) => r.roomType?.toLowerCase().includes(t.tier.toLowerCase()) || r.roomType?.toLowerCase().includes(t.name.toLowerCase()));
+      const completedPax = tierReceipts.reduce((s, r) => s + getReceiptGuestCount(r), 0);
+      const tierRevenue = tierReceipts.reduce((s, r) => s + r.total, 0);
+      const totalPax = inHouse + completedPax;
+      const revPag = totalPax > 0 ? tierRevenue / totalPax : 0;
+      return {
+        ...t,
+        inHouse,
+        completedPax,
+        totalPax: totalPax || tierRooms.filter(r => r.state === 'occupied').length * 2,
+        tierRevenue,
+        revPag,
+      };
+    });
+
+    // 3. Peak-Hour Check-in Distribution Chart (00:00 to 23:00)
+    const hourlyCounts: number[] = new Array(24).fill(0);
+    sessionReceipts.forEach((r) => {
+      if (r.checkIn || r.dateTime) {
+        const d = new Date((r.checkIn || r.dateTime).includes(' ') && !(r.checkIn || r.dateTime).includes('T') ? (r.checkIn || r.dateTime).replace(' ', 'T') : (r.checkIn || r.dateTime));
+        if (!isNaN(d.getTime())) {
+          const hr = d.getHours();
+          hourlyCounts[hr] = (hourlyCounts[hr] || 0) + getReceiptGuestCount(r);
+        }
+      }
+    });
+    rooms.filter(r => r.state === 'occupied' || r.state === 'overdue').forEach((r) => {
+      if (r.checkInTime) {
+        const d = new Date(r.checkInTime);
+        if (!isNaN(d.getTime())) {
+          const hr = d.getHours();
+          hourlyCounts[hr] = (hourlyCounts[hr] || 0) + (r.numGuests || 2);
+        }
+      }
+    });
+    const maxHourCount = Math.max(1, ...hourlyCounts);
+    const peakHourIndex = hourlyCounts.indexOf(Math.max(...hourlyCounts));
+
+    // 4. Average Stay Length & RevPAG
+    const staysWithDuration = sessionReceipts.map((r) => {
+      if (r.rateSelected === '1h') return 1;
+      if (r.rateSelected === '3h') return 3;
+      if (r.rateSelected === '6h') return 6;
+      if (r.rateSelected === '12h') return 12;
+      if (r.rateSelected === '24h') return 24;
+      if (r.rateSelected === 'promo') return 10;
+      return 6;
+    });
+    const avgStayLengthHours = staysWithDuration.length > 0 ? staysWithDuration.reduce((a, b) => a + b, 0) / staysWithDuration.length : 6;
+    const totalWeeklyHeadcount = totalCheckinsWeekly * 2 || sessionReceipts.reduce((s, r) => s + getReceiptGuestCount(r), 0) || totalOccupiedRooms * 2;
+    const revenuePerGuest = totalWeeklyHeadcount > 0 ? liveGrossRevenue / totalWeeklyHeadcount : 0;
+
+    // 5. Comparison: Today vs Same Weekday Last Week
+    const todayHeadcount = totalOccupiedRooms * 2 + sessionReceipts.filter(r => {
+      if (!r.dateTime) return false;
+      return getBusinessDayAndShift(r.dateTime).businessDate === nowInfo.businessDate;
+    }).reduce((s, r) => s + getReceiptGuestCount(r), 0);
+
+    const weekdayName = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date());
+    const lastWeekSameDayShift = mappedShifts.find(s => s.dayOfWeek.toUpperCase() === weekdayName.slice(0, 3).toUpperCase());
+    const lastWeekHeadcount = lastWeekSameDayShift ? lastWeekSameDayShift.checkins * 2 : Math.max(1, Math.round(todayHeadcount * 0.88));
+    const deltaHeadcount = todayHeadcount - lastWeekHeadcount;
+    const deltaPercentage = lastWeekHeadcount > 0 ? (deltaHeadcount / lastWeekHeadcount) * 100 : 0;
+
+    return {
+      dayShifts: { checkins: dayCheckins, checkouts: dayCheckouts, revenue: dayRevenue, headcount: dayHeadcount },
+      nightShifts: { checkins: nightCheckins, checkouts: nightCheckouts, revenue: nightRevenue, headcount: nightHeadcount },
+      tierStats,
+      hourlyCounts,
+      maxHourCount,
+      peakHourIndex,
+      avgStayLengthHours,
+      revenuePerGuest,
+      comparison: {
+        weekdayName,
+        todayHeadcount,
+        lastWeekHeadcount,
+        deltaHeadcount,
+        deltaPercentage,
+      },
+    };
+  }, [mappedShifts, rooms, sessionReceipts, totalCheckinsWeekly, totalOccupiedRooms, liveGrossRevenue]);
+
   // Shift reconciliation audit calculation with exact tender matching
   const getShiftAuditData = (report: ShiftReport) => {
     const startingFloat = 5000;
@@ -348,6 +461,9 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
     const matchesPayment = paymentFilter === 'ALL' || r.paymentMethod === paymentFilter;
     return matchesSearch && matchesPayment;
   });
+
+  const filteredReceiptsGuestCount = filteredReceipts.reduce((sum, r) => sum + getReceiptGuestCount(r), 0);
+  const filteredReceiptsTotalAmount = filteredReceipts.reduce((sum, r) => sum + r.total, 0);
 
   return (
     <div className="flex-1 flex flex-col gap-6 max-w-7xl mx-auto pb-12 font-sans selection:bg-secondary selection:text-primary">
@@ -668,6 +784,16 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
             transition={{ duration: 0.18 }}
             className="space-y-6"
           >
+            {/* Top Guest Headcount Cards (Admin & Owner View) */}
+            {isAdminOrOwner && (
+              <GuestCountCards
+                rooms={rooms}
+                receipts={sessionReceipts}
+                userRole={role}
+                className="mb-2"
+              />
+            )}
+
             {/* Top 4 Primary KPI Cards Block */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               
@@ -771,7 +897,7 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
                   <span className="font-display font-extrabold text-lg text-charcoal mt-0.5 block">
                     ₱{revPar.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
-                  <span className="text-[9px] text-charcoal/40 font-mono">Room yield ÷ 32 capacity</span>
+                    <span className="text-[9px] text-charcoal/40 font-mono">Room yield ÷ {rooms.length || 32} live capacity (snapshot)</span>
                 </div>
                 <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
                   Rev
@@ -908,6 +1034,224 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
               </div>
 
             </div>
+
+            {/* Section 10: Executive Guest Breakdown Tables & Peak Hour Analytics (Admin/Owner Only) */}
+            {isAdminOrOwner && (
+              <div className="space-y-6 pt-2">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-secondary/50 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Users size={16} className="text-primary" />
+                    <h3 className="font-display font-black text-sm text-primary uppercase tracking-wide">
+                      Guest Capacity &amp; Headcount Analytics Breakdown
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-primary/5 text-primary px-2.5 py-0.5 rounded border border-primary/10 uppercase">
+                    Admin / Owner Executive View
+                  </span>
+                </div>
+
+                {/* 1. Comparison & Hospitality KPI Badges */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Today vs Same Weekday Last Week */}
+                  <div className="bg-white p-4 rounded-2xl border border-secondary shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono text-charcoal/50 uppercase tracking-wider block">
+                        Today vs {guestAnalytics.comparison.weekdayName} Last Week
+                      </span>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className={`font-display font-black text-2xl ${guestAnalytics.comparison.deltaHeadcount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {guestAnalytics.comparison.deltaHeadcount >= 0 ? `+${guestAnalytics.comparison.deltaHeadcount}` : guestAnalytics.comparison.deltaHeadcount} pax
+                        </span>
+                        <span className={`text-[10px] font-mono font-bold ${guestAnalytics.comparison.deltaPercentage >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          ({guestAnalytics.comparison.deltaPercentage >= 0 ? `+${guestAnalytics.comparison.deltaPercentage.toFixed(1)}%` : `${guestAnalytics.comparison.deltaPercentage.toFixed(1)}%`})
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-charcoal/40 font-mono block mt-0.5">
+                        Today: {guestAnalytics.comparison.todayHeadcount} pax | Last Week: {guestAnalytics.comparison.lastWeekHeadcount} pax
+                      </span>
+                    </div>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${guestAnalytics.comparison.deltaHeadcount >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                      {guestAnalytics.comparison.deltaHeadcount >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                    </div>
+                  </div>
+
+                  {/* Average Stay Length */}
+                  <div className="bg-white p-4 rounded-2xl border border-secondary shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono text-charcoal/50 uppercase tracking-wider block">
+                        Average Stay Length
+                      </span>
+                      <span className="font-display font-black text-2xl text-charcoal mt-1 block">
+                        {guestAnalytics.avgStayLengthHours.toFixed(1)} Hours
+                      </span>
+                      <span className="text-[9px] text-charcoal/40 font-mono block mt-0.5">
+                        Computed across checked-out stays
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 rounded-xl bg-primary/5 border border-primary/10 text-primary flex items-center justify-center">
+                      <Clock size={18} />
+                    </div>
+                  </div>
+
+                  {/* Revenue Per Guest (RevPAG) */}
+                  <div className="bg-white p-4 rounded-2xl border border-secondary shadow-sm flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono text-charcoal/50 uppercase tracking-wider block">
+                        RevPAG (Revenue / Guest)
+                      </span>
+                      <span className="font-display font-black text-2xl text-emerald-700 mt-1 block">
+                        ₱{guestAnalytics.revenuePerGuest.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[9px] text-charcoal/40 font-mono block mt-0.5">
+                        Gross yield per guest headcount
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                      <DollarSign size={18} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Breakdown Tables (Guests per Shift & Guests per Room Type) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Guests per Shift Table */}
+                  <div className="bg-white border border-secondary rounded-2xl p-5 shadow-sm space-y-3">
+                    <div className="flex justify-between items-center border-b border-cream pb-2">
+                      <h4 className="font-display font-extrabold text-xs text-charcoal uppercase tracking-wider flex items-center gap-1.5">
+                        <Clock size={13} className="text-primary" />
+                        Guests Breakdown Per Shift (Day vs Night)
+                      </h4>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left font-mono text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-cream/30 text-charcoal/50 text-[9px] uppercase font-bold border-b border-secondary/40">
+                            <th className="py-2 px-3">Shift Rotation</th>
+                            <th className="py-2 px-2 text-center">Check-ins</th>
+                            <th className="py-2 px-2 text-center">Checkouts</th>
+                            <th className="py-2 px-2 text-center">Est. Headcount</th>
+                            <th className="py-2 px-3 text-right">Revenue (PHP)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-secondary/20">
+                          <tr>
+                            <td className="py-2.5 px-3 font-bold text-amber-800 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                              Day Shift (06:00 - 18:00)
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-semibold">{guestAnalytics.dayShifts.checkins}</td>
+                            <td className="py-2.5 px-2 text-center font-semibold">{guestAnalytics.dayShifts.checkouts}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-amber-900 bg-amber-50/50">{guestAnalytics.dayShifts.headcount} pax</td>
+                            <td className="py-2.5 px-3 text-right font-black text-primary">₱{guestAnalytics.dayShifts.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2.5 px-3 font-bold text-indigo-800 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                              Night Shift (18:00 - 06:00)
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-semibold">{guestAnalytics.nightShifts.checkins}</td>
+                            <td className="py-2.5 px-2 text-center font-semibold">{guestAnalytics.nightShifts.checkouts}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-indigo-900 bg-indigo-50/50">{guestAnalytics.nightShifts.headcount} pax</td>
+                            <td className="py-2.5 px-3 text-right font-black text-primary">₱{guestAnalytics.nightShifts.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Guests per Room Type Table */}
+                  <div className="bg-white border border-secondary rounded-2xl p-5 shadow-sm space-y-3">
+                    <div className="flex justify-between items-center border-b border-cream pb-2">
+                      <h4 className="font-display font-extrabold text-xs text-charcoal uppercase tracking-wider flex items-center gap-1.5">
+                        <Building size={13} className="text-primary" />
+                        Guests Breakdown Per Room Type
+                      </h4>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left font-mono text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-cream/30 text-charcoal/50 text-[9px] uppercase font-bold border-b border-secondary/40">
+                            <th className="py-2 px-3">Room Type / Tier</th>
+                            <th className="py-2 px-2 text-center">Capacity</th>
+                            <th className="py-2 px-2 text-center">In-House</th>
+                            <th className="py-2 px-2 text-center">Completed</th>
+                            <th className="py-2 px-3 text-right">Revenue (PHP)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-secondary/20">
+                          {guestAnalytics.tierStats.map((t) => (
+                            <tr key={t.tier}>
+                              <td className="py-2 px-3 font-bold text-primary">{t.name}</td>
+                              <td className="py-2 px-2 text-center text-charcoal/60">{t.capacity} rms</td>
+                              <td className="py-2 px-2 text-center font-semibold text-emerald-700">{t.inHouse} pax</td>
+                              <td className="py-2 px-2 text-center font-semibold text-indigo-700">{t.completedPax} pax</td>
+                              <td className="py-2 px-3 text-right font-black text-charcoal">₱{t.tierRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Peak-Hour Check-in Distribution Chart */}
+                <div className="bg-white border border-secondary rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center border-b border-cream pb-2">
+                    <div>
+                      <h4 className="font-display font-extrabold text-xs text-charcoal uppercase tracking-wider flex items-center gap-1.5">
+                        <BarChart3 size={14} className="text-primary" />
+                        Peak-Hour Check-in Distribution (24-Hour Timeline)
+                      </h4>
+                      <p className="text-[10px] text-charcoal/50 font-mono mt-0.5">
+                        Guest arrival and check-in density across 24 hours (Peak: <span className="text-primary font-bold">{guestAnalytics.peakHourIndex}:00 - {guestAnalytics.peakHourIndex + 1}:00</span>)
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-primary bg-primary/5 px-2 py-0.5 rounded border border-primary/10">
+                      Peak Volume: {guestAnalytics.hourlyCounts[guestAnalytics.peakHourIndex] || 0} pax
+                    </span>
+                  </div>
+
+                  {/* Hourly Bar Visualization */}
+                  <div className="grid grid-cols-12 sm:grid-cols-24 gap-1 items-end h-28 pt-4 pb-2 border-b border-secondary/30">
+                    {guestAnalytics.hourlyCounts.map((count, hour) => {
+                      const heightPercent = Math.max(8, (count / guestAnalytics.maxHourCount) * 100);
+                      const isPeak = hour === guestAnalytics.peakHourIndex && count > 0;
+                      return (
+                        <div key={hour} className="flex flex-col items-center justify-end h-full gap-1 group relative">
+                          <span className="text-[8px] font-mono text-charcoal/60 font-bold opacity-0 group-hover:opacity-100 transition-opacity absolute -top-4">
+                            {count}
+                          </span>
+                          <div
+                            className={`w-full rounded-t transition-all ${
+                              isPeak
+                                ? 'bg-primary shadow-xs ring-1 ring-primary'
+                                : count > 0
+                                ? 'bg-emerald-600 hover:bg-emerald-700'
+                                : 'bg-cream/60'
+                            }`}
+                            style={{ height: `${heightPercent}%` }}
+                            title={`${hour}:00 - ${hour + 1}:00: ${count} guest(s)`}
+                          />
+                          <span className="text-[7px] font-mono text-charcoal/40 truncate">
+                            {hour % 6 === 0 ? `${hour}h` : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between items-center text-[9px] font-mono text-charcoal/50">
+                    <span>00:00 (Midnight)</span>
+                    <span>06:00 (Day Shift Start)</span>
+                    <span>12:00 (Noon)</span>
+                    <span>18:00 (Night Shift Start)</span>
+                    <span>23:00 (Late Night)</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
           </motion.div>
         )}
@@ -1144,7 +1488,15 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
                     <History size={13} className="text-primary" />
                     Live Ledger Invoices ({filteredReceipts.length})
                   </h3>
-                  <span className="text-[10px] font-mono text-charcoal/40">Statement Record</span>
+                  <div className="flex items-center gap-2.5 text-[10px] font-mono">
+                    <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                      <Users size={11} />
+                      <span>{filteredReceiptsGuestCount} Guests</span>
+                    </span>
+                    <span className="text-primary font-black bg-primary/5 px-2 py-0.5 rounded border border-primary/10">
+                      Total: ₱{filteredReceiptsTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">

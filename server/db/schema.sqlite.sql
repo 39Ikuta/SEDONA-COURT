@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   tier           TEXT NOT NULL CHECK (tier IN ('Standard', 'Deluxe', 'Suite')),
   floor          INTEGER NOT NULL DEFAULT 1,
   room_type      TEXT NOT NULL,
-  state          TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'occupied', 'cleaning', 'overdue', 'maintenance')),
+  state          TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'occupied', 'overdue', 'maintenance')),
   label          TEXT DEFAULT 'Available',
   guest_name     TEXT DEFAULT '',
   guest_id       TEXT DEFAULT '',
@@ -39,10 +39,24 @@ CREATE TABLE IF NOT EXISTS rooms (
   towel_sets     INTEGER DEFAULT 0,
   check_in_time  TEXT,
   check_out_time TEXT,
+  check_in_at    TEXT,
+  expected_checkout_at TEXT,
+  alarm_state    TEXT NOT NULL DEFAULT 'NORMAL' CHECK (alarm_state IN ('NORMAL', 'WARNING', 'DUE', 'OVERDUE')),
+  acknowledged_at TEXT,
+  acknowledged_by TEXT,
   is_overdue     INTEGER DEFAULT 0,
+  snoozed_until  TEXT,
+  repeat_count   INTEGER NOT NULL DEFAULT 0,
+  billing_mode   TEXT NOT NULL DEFAULT 'standard' CHECK (billing_mode IN ('standard', 'open_time')),
+  open_time_started_at TEXT,
+  last_reminder_at TEXT,
+  overtime_waived INTEGER NOT NULL DEFAULT 0,
+  overtime_waived_by TEXT,
+  overtime_waived_reason TEXT,
   charged_food   TEXT DEFAULT '[]',
   discount_type  TEXT DEFAULT 'NONE',
   discount_id_ref TEXT DEFAULT '',
+  allocated_receipt_no TEXT DEFAULT NULL,
   updated_at     TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -63,6 +77,7 @@ CREATE TABLE IF NOT EXISTS scheduled_bookings (
   rate_selected  TEXT NOT NULL,
   num_guests     INTEGER DEFAULT 1,
   status         TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'checked-in', 'cancelled')),
+  allocated_receipt_no TEXT DEFAULT NULL,
   created_at     TEXT DEFAULT (datetime('now', 'localtime')),
   FOREIGN KEY (room_number) REFERENCES rooms(number)
 );
@@ -97,12 +112,98 @@ CREATE TABLE IF NOT EXISTS receipts (
   rate_selected   TEXT DEFAULT NULL,
   stay_duration   TEXT DEFAULT NULL,
   cashier_id      TEXT,
+  amount_tendered_cents INTEGER DEFAULT NULL,
+  change_cents    INTEGER DEFAULT NULL,
+  consumed_minutes INTEGER DEFAULT NULL,
+  idempotency_key TEXT DEFAULT NULL,
+  status          TEXT NOT NULL DEFAULT 'valid' CHECK (status IN ('valid', 'void')),
+  void_reason     TEXT DEFAULT NULL,
+  voided_at       TEXT DEFAULT NULL,
+  voided_by       TEXT DEFAULT NULL,
+  reprint_count   INTEGER NOT NULL DEFAULT 0,
+  last_reprinted_at TEXT DEFAULT NULL,
+  last_reprinted_by TEXT DEFAULT NULL,
+  receipt_snapshot TEXT DEFAULT NULL,
   created_at      TEXT DEFAULT (datetime('now', 'localtime')),
   FOREIGN KEY (room_number) REFERENCES rooms(number)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency_key ON receipts(idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_receipts_date ON receipts(date_time);
 CREATE INDEX IF NOT EXISTS idx_receipts_room ON receipts(room_number);
+CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
+
+-- ============================================================
+-- RECEIPT & DEPOSIT SEQUENCES
+-- Strictly increasing sequential counters for official receipts and deposits.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS receipt_sequences (
+  name        TEXT PRIMARY KEY,
+  prefix      TEXT NOT NULL DEFAULT 'SCTI',
+  last_value  INTEGER NOT NULL DEFAULT 43,
+  updated_at  TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+INSERT OR IGNORE INTO receipt_sequences (name, prefix, last_value)
+VALUES ('default', 'SCTI', 43);
+
+INSERT OR IGNORE INTO receipt_sequences (name, prefix, last_value)
+VALUES ('deposit_default', 'DEP', 0);
+
+-- ============================================================
+-- RECEIPT & DEPOSIT COUNTERS
+-- Per-cashier, per-shift, per-business-date sequential numbering.
+-- Format: {CASHIER_CODE}{SHIFT_CODE}{MMDDYY}-{COUNTER}
+-- ============================================================
+CREATE TABLE IF NOT EXISTS receipt_counters (
+  cashier_code   TEXT NOT NULL,
+  shift_code     TEXT NOT NULL CHECK (shift_code IN ('D', 'N')),
+  business_date  TEXT NOT NULL,
+  last_value     INTEGER NOT NULL DEFAULT 0,
+  updated_at     TEXT DEFAULT (datetime('now', 'localtime')),
+  PRIMARY KEY (cashier_code, shift_code, business_date)
+);
+
+CREATE TABLE IF NOT EXISTS deposit_counters (
+  cashier_code   TEXT NOT NULL,
+  shift_code     TEXT NOT NULL,
+  business_date  TEXT NOT NULL,
+  last_value     INTEGER NOT NULL DEFAULT 0,
+  updated_at     TEXT DEFAULT (datetime('now', 'localtime')),
+  PRIMARY KEY (cashier_code, shift_code, business_date)
+);
+
+-- ============================================================
+-- DEPOSITS
+-- Guest security/advance deposits, held and resolved separately from sales.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS deposits (
+  id                    TEXT PRIMARY KEY,
+  booking_id            TEXT,
+  room_id               TEXT,
+  amount_cents          INTEGER NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'refunded', 'applied', 'forfeited')),
+  collected_by          TEXT NOT NULL,
+  collected_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  resolved_by           TEXT,
+  resolved_at           TEXT,
+  deposit_number        TEXT NOT NULL UNIQUE,
+  notes                 TEXT,
+  refund_amount_cents   INTEGER NOT NULL DEFAULT 0,
+  applied_amount_cents  INTEGER NOT NULL DEFAULT 0,
+  linked_receipt_no     TEXT,
+  deposit_snapshot      TEXT,
+  resolution_snapshot   TEXT,
+  reprint_count         INTEGER NOT NULL DEFAULT 0,
+  created_at            TEXT DEFAULT (datetime('now', 'localtime')),
+  updated_at            TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_number ON deposits(deposit_number);
+CREATE INDEX IF NOT EXISTS idx_deposits_room ON deposits(room_id);
+CREATE INDEX IF NOT EXISTS idx_deposits_booking ON deposits(booking_id);
+CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
+
 
 -- ============================================================
 -- BILLABLE SERVICES
@@ -499,6 +600,20 @@ CREATE INDEX IF NOT EXISTS idx_shift_expenses_date ON shift_expenses(shift_date,
 CREATE INDEX IF NOT EXISTS idx_shift_expenses_cashier ON shift_expenses(cashier_id);
 
 -- ============================================================
+-- SHIFT FLOATS (opening/closing drawer float per shift, centavos)
+-- Replaces hardcoded ₱5000 across settlement/handoff/export
+-- ============================================================
+CREATE TABLE IF NOT EXISTS shift_floats (
+  shift_date TEXT NOT NULL,
+  shift_type TEXT NOT NULL CHECK (shift_type IN ('DAY', 'NIGHT')),
+  opening_float INTEGER NOT NULL DEFAULT 500000,
+  closing_float INTEGER,
+  counted_by TEXT,
+  updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+  PRIMARY KEY (shift_date, shift_type)
+);
+
+-- ============================================================
 -- ROOM TRANSFERS
 -- Log of guest room relocations with reason and timestamps
 -- ============================================================
@@ -522,5 +637,15 @@ CREATE TABLE IF NOT EXISTS room_transfers (
 CREATE INDEX IF NOT EXISTS idx_room_transfers_time ON room_transfers(transferred_at);
 CREATE INDEX IF NOT EXISTS idx_room_transfers_source ON room_transfers(source_room_number);
 CREATE INDEX IF NOT EXISTS idx_room_transfers_target ON room_transfers(target_room_number);
+
+-- ============================================================
+-- SYSTEM SETTINGS
+-- Configurable key-value operational settings (e.g. alarm offsets)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS system_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
 
 

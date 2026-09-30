@@ -135,6 +135,133 @@ export function initializeDatabaseSync(): void {
     console.warn('kitchen_orders column migration check warning:', err);
   }
 
+  // Pre-schema migration for existing db: Ensure receipts columns exist before schemaSql creates indexes on them
+  try {
+    const receiptsTable = sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='receipts'").get();
+    if (receiptsTable) {
+      const receiptCols = sqliteDb.prepare('PRAGMA table_info(receipts)').all() as Array<{ name: string }>;
+      const receiptColNames = new Set(receiptCols.map(c => c.name));
+      if (!receiptColNames.has('discount_type')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN discount_type TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('discount_amount')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN discount_amount REAL DEFAULT 0.00;');
+      }
+      if (!receiptColNames.has('discount_id_ref')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN discount_id_ref TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('rate_selected')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN rate_selected TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('stay_duration')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN stay_duration TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('amount_tendered_cents')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN amount_tendered_cents INTEGER DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('change_cents')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN change_cents INTEGER DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('consumed_minutes')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN consumed_minutes INTEGER DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('idempotency_key')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN idempotency_key TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('status')) {
+        sqliteDb.exec("ALTER TABLE receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'valid';");
+      }
+      if (!receiptColNames.has('void_reason')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN void_reason TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('voided_at')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN voided_at TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('voided_by')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN voided_by TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('reprint_count')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN reprint_count INTEGER NOT NULL DEFAULT 0;');
+      }
+      if (!receiptColNames.has('last_reprinted_at')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN last_reprinted_at TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('last_reprinted_by')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN last_reprinted_by TEXT DEFAULT NULL;');
+      }
+      if (!receiptColNames.has('receipt_snapshot')) {
+        sqliteDb.exec('ALTER TABLE receipts ADD COLUMN receipt_snapshot TEXT DEFAULT NULL;');
+      }
+    }
+
+    const roomsTable = sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rooms'").get();
+    if (roomsTable) {
+      const roomCols = sqliteDb.prepare('PRAGMA table_info(rooms)').all() as Array<{ name: string }>;
+      const roomColNames = new Set(roomCols.map(c => c.name));
+      if (!roomColNames.has('billing_mode')) {
+        sqliteDb.exec("ALTER TABLE rooms ADD COLUMN billing_mode TEXT NOT NULL DEFAULT 'standard';");
+      }
+      if (!roomColNames.has('open_time_started_at')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN open_time_started_at TEXT DEFAULT NULL;');
+      }
+      if (!roomColNames.has('last_reminder_at')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN last_reminder_at TEXT DEFAULT NULL;');
+      }
+      if (!roomColNames.has('snoozed_until')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN snoozed_until TEXT DEFAULT NULL;');
+      }
+      if (!roomColNames.has('repeat_count')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN repeat_count INTEGER NOT NULL DEFAULT 0;');
+      }
+      if (!roomColNames.has('overtime_waived')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN overtime_waived INTEGER NOT NULL DEFAULT 0;');
+      }
+      if (!roomColNames.has('overtime_waived_by')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN overtime_waived_by TEXT DEFAULT NULL;');
+      }
+      if (!roomColNames.has('overtime_waived_reason')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN overtime_waived_reason TEXT DEFAULT NULL;');
+      }
+      if (!roomColNames.has('allocated_receipt_no')) {
+        sqliteDb.exec('ALTER TABLE rooms ADD COLUMN allocated_receipt_no TEXT DEFAULT NULL;');
+      }
+
+      // Convert any rooms with state='cleaning' to 'available'
+      sqliteDb.exec("UPDATE rooms SET state = 'available' WHERE state = 'cleaning';");
+    }
+
+    const bookingsTable = sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_bookings'").get();
+    if (bookingsTable) {
+      const bookingCols = sqliteDb.prepare('PRAGMA table_info(scheduled_bookings)').all() as Array<{ name: string }>;
+      const bookingColNames = new Set(bookingCols.map(c => c.name));
+      if (!bookingColNames.has('allocated_receipt_no')) {
+        sqliteDb.exec('ALTER TABLE scheduled_bookings ADD COLUMN allocated_receipt_no TEXT DEFAULT NULL;');
+      }
+    }
+
+    // Ensure receipt_counters and deposit_counters exist
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS receipt_counters (
+        cashier_code   TEXT NOT NULL,
+        shift_code     TEXT NOT NULL CHECK (shift_code IN ('D', 'N')),
+        business_date  TEXT NOT NULL,
+        last_value     INTEGER NOT NULL DEFAULT 0,
+        updated_at     TEXT DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (cashier_code, shift_code, business_date)
+      );
+      CREATE TABLE IF NOT EXISTS deposit_counters (
+        cashier_code   TEXT NOT NULL,
+        shift_code     TEXT NOT NULL,
+        business_date  TEXT NOT NULL,
+        last_value     INTEGER NOT NULL DEFAULT 0,
+        updated_at     TEXT DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (cashier_code, shift_code, business_date)
+      );
+    `);
+  } catch (err) {
+    console.warn('pre-schema column migration check warning:', err);
+  }
+
   const schemaPath = path.resolve(process.cwd(), 'server/db/schema.sqlite.sql');
   if (fs.existsSync(schemaPath)) {
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
@@ -192,6 +319,88 @@ export function initializeDatabaseSync(): void {
       sqliteDb.exec('ALTER TABLE receipts ADD COLUMN stay_duration TEXT DEFAULT NULL;');
       console.log('✅ Migrated receipts.stay_duration column.');
     }
+    if (!receiptColNames.has('amount_tendered_cents')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN amount_tendered_cents INTEGER DEFAULT NULL;');
+      console.log('✅ Migrated receipts.amount_tendered_cents column.');
+    }
+    if (!receiptColNames.has('change_cents')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN change_cents INTEGER DEFAULT NULL;');
+      console.log('✅ Migrated receipts.change_cents column.');
+    }
+    if (!receiptColNames.has('consumed_minutes')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN consumed_minutes INTEGER DEFAULT NULL;');
+      console.log('✅ Migrated receipts.consumed_minutes column.');
+    }
+    if (!receiptColNames.has('idempotency_key')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN idempotency_key TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.idempotency_key column.');
+    }
+    if (!receiptColNames.has('status')) {
+      sqliteDb.exec("ALTER TABLE receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'valid';");
+      console.log('✅ Migrated receipts.status column.');
+    }
+    if (!receiptColNames.has('void_reason')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN void_reason TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.void_reason column.');
+    }
+    if (!receiptColNames.has('voided_at')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN voided_at TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.voided_at column.');
+    }
+    if (!receiptColNames.has('voided_by')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN voided_by TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.voided_by column.');
+    }
+    if (!receiptColNames.has('reprint_count')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN reprint_count INTEGER NOT NULL DEFAULT 0;');
+      console.log('✅ Migrated receipts.reprint_count column.');
+    }
+    if (!receiptColNames.has('last_reprinted_at')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN last_reprinted_at TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.last_reprinted_at column.');
+    }
+    if (!receiptColNames.has('last_reprinted_by')) {
+      sqliteDb.exec('ALTER TABLE receipts ADD COLUMN last_reprinted_by TEXT DEFAULT NULL;');
+      console.log('✅ Migrated receipts.last_reprinted_by column.');
+    }
+    try {
+      sqliteDb.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_idempotency_key ON receipts(idempotency_key);');
+      sqliteDb.exec('CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);');
+      sqliteDb.exec('CREATE INDEX IF NOT EXISTS idx_receipts_date_time ON receipts(date_time);');
+      sqliteDb.exec('CREATE INDEX IF NOT EXISTS idx_receipts_check_in ON receipts(check_in);');
+    } catch {}
+
+    // Ensure receipt_sequences table exists and is seeded with staff running number count (43 -> next 44)
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS receipt_sequences (
+        name        TEXT PRIMARY KEY,
+        prefix      TEXT NOT NULL DEFAULT 'SCTI',
+        last_value  INTEGER NOT NULL DEFAULT 43,
+        updated_at  TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+    sqliteDb.prepare(`INSERT OR IGNORE INTO receipt_sequences (name, prefix, last_value) VALUES ('default', 'SCTI', 43)`).run();
+
+    // Ensure atomic sequential counter tables exist for receipts and deposits
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS receipt_counters (
+        cashier_code TEXT NOT NULL,
+        shift_code   TEXT NOT NULL,
+        business_date TEXT NOT NULL,
+        last_value   INTEGER NOT NULL DEFAULT 0,
+        updated_at   TEXT DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (cashier_code, shift_code, business_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS deposit_counters (
+        cashier_code TEXT NOT NULL,
+        shift_code   TEXT NOT NULL,
+        business_date TEXT NOT NULL,
+        last_value   INTEGER NOT NULL DEFAULT 0,
+        updated_at   TEXT DEFAULT (datetime('now', 'localtime')),
+        PRIMARY KEY (cashier_code, shift_code, business_date)
+      );
+    `);
   } catch (err) {
     console.warn('receipts migration check warning:', err);
   }
@@ -208,8 +417,57 @@ export function initializeDatabaseSync(): void {
       sqliteDb.exec("ALTER TABLE rooms ADD COLUMN discount_id_ref TEXT DEFAULT '';");
       console.log('✅ Migrated rooms.discount_id_ref column.');
     }
+    if (!roomColNames.has('check_in_at')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN check_in_at TEXT DEFAULT NULL;");
+      console.log('✅ Migrated rooms.check_in_at column.');
+    }
+    if (!roomColNames.has('expected_checkout_at')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN expected_checkout_at TEXT DEFAULT NULL;");
+      console.log('✅ Migrated rooms.expected_checkout_at column.');
+    }
+    if (!roomColNames.has('alarm_state')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN alarm_state TEXT NOT NULL DEFAULT 'NORMAL';");
+      console.log('✅ Migrated rooms.alarm_state column.');
+    }
+    if (!roomColNames.has('acknowledged_at')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN acknowledged_at TEXT DEFAULT NULL;");
+      console.log('✅ Migrated rooms.acknowledged_at column.');
+    }
+    if (!roomColNames.has('acknowledged_by')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN acknowledged_by TEXT DEFAULT NULL;");
+      console.log('✅ Migrated rooms.acknowledged_by column.');
+    }
+    if (!roomColNames.has('allocated_receipt_no')) {
+      sqliteDb.exec("ALTER TABLE rooms ADD COLUMN allocated_receipt_no TEXT DEFAULT NULL;");
+      console.log('✅ Migrated rooms.allocated_receipt_no column.');
+    }
+
+    const bookingTable = sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_bookings'").get();
+    if (bookingTable) {
+      const bookingCols = sqliteDb.pragma('table_info(scheduled_bookings)') as Array<{ name: string }>;
+      const bookingColNames = new Set(bookingCols.map((c) => c.name));
+      if (!bookingColNames.has('allocated_receipt_no')) {
+        sqliteDb.exec("ALTER TABLE scheduled_bookings ADD COLUMN allocated_receipt_no TEXT DEFAULT NULL;");
+        console.log('✅ Migrated scheduled_bookings.allocated_receipt_no column.');
+      }
+    }
   } catch (err) {
-    console.warn('rooms discount column migration check warning:', err);
+    console.warn('rooms discount and alarm column migration check warning:', err);
+  }
+
+  // Ensure system_settings table exists and default alarm offsets seeded
+  try {
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+    sqliteDb.prepare(`INSERT OR IGNORE INTO system_settings (key, value) VALUES ('alarm_pre_minutes', '15')`).run();
+    sqliteDb.prepare(`INSERT OR IGNORE INTO system_settings (key, value) VALUES ('alarm_post_minutes', '15')`).run();
+  } catch (settingsErr) {
+    console.warn('system_settings migration check warning:', settingsErr);
   }
 
   // Check if users table CHECK constraint includes 'customer_display'
@@ -588,9 +846,20 @@ export function convertSqlForSqlite(sql: string): string {
     else if (table === 'discount_rates') conflictTarget = '(discount_type, room_tier, duration)';
     else if (table === 'menu_item_inventory') conflictTarget = '(item_id)';
     else if (table === 'inventory_events') conflictTarget = '(id)';
+    else if (table === 'system_settings') conflictTarget = '(key)';
+    else if (table === 'receipt_sequences') conflictTarget = '(name)';
+    else if (table === 'receipt_counters') conflictTarget = '(cashier_code, shift_code, business_date)';
+    else if (table === 'deposit_counters') conflictTarget = '(cashier_code, shift_code, business_date)';
+    else if (table === 'shift_floats') conflictTarget = '(shift_date, shift_type)';
 
     s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE/gi, `ON CONFLICT ${conflictTarget} DO UPDATE SET`);
   }
+
+  // Strip MySQL 'FOR UPDATE' locking clause — SQLite-only deployment serializes via
+  // BEGIN IMMEDIATE + JS mutex (see withTransaction), so row locks are a no-op here.
+  // TODO(MySQL port): make convertSqlForSqlite dialect-aware and preserve FOR UPDATE when
+  // targeting MySQL/multi-process, else sequence counters + idempotency checks will race.
+  s = s.replace(/\s+FOR\s+UPDATE/gi, '');
 
   return s;
 }

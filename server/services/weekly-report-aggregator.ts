@@ -235,6 +235,44 @@ export class WeeklyReportAggregator {
   }
 
   /**
+   * Called when a receipt is voided - reverse its shift entry contribution.
+   */
+  async onReceiptVoided(receipt: Receipt): Promise<void> {
+    try {
+      const receiptDate = this.parseDateSafe(receipt.date_time);
+      const dateStr = format(receiptDate, 'yyyy-MM-dd');
+      const shiftType = this.getShiftType(receipt.date_time);
+      const revenue = this.parseRevenueFromReceipt(receipt);
+      await pool.query(
+        `UPDATE weekly_shift_entries
+         SET room_bill = room_bill - $1,
+             kitchen_bill = kitchen_bill - $2,
+             drinks_bill = drinks_bill - $3,
+             miscell_purchases = miscell_purchases - $4,
+             extras = extras - $5,
+             payment_received = payment_received - $6,
+             updated_at = NOW()
+         WHERE date = $7 AND shift_type = $8`,
+        [
+          revenue.roomBill,
+          revenue.kitchenBill,
+          revenue.drinksBill,
+          revenue.miscellPurchases,
+          revenue.extras,
+          receipt.total,
+          dateStr,
+          shiftType
+        ]
+      );
+      await pool.query(`DELETE FROM gcash_entries WHERE receipt_no = ?`, [receipt.receipt_no]);
+      console.log(`↩️ Weekly entry reversed for void ${receipt.receipt_no} ${dateStr} ${shiftType}`);
+    } catch (err) {
+      console.error('Error in onReceiptVoided:', err);
+      throw err;
+    }
+  }
+
+  /**
    * Called when processing checkouts - increment checkout count
    */
   async onCheckout(date: string, shiftType: 'DAY' | 'NIGHT'): Promise<void> {
@@ -424,35 +462,53 @@ export class WeeklyReportAggregator {
       const startStr = format(start, 'yyyy-MM-dd');
       const endStr = format(end, 'yyyy-MM-dd');
 
+      // Merge with existing row so partial updates (e.g. custom_expenses only) don't wipe fixed columns
+      const prevRes = await pool.query('SELECT * FROM weekly_expenses WHERE week_start = ?', [startStr]);
+      const prev = prevRes.rows[0] || {};
+      const merged: any = { ...expenses };
+      for (const k of ['kitchen_expenses','wilkins_pure','ate_lanie_beddings','krico_gas_laundry','tissue_flexi_cling','miscellaneous','kovi','cm_surc_rh','lempo','marbont','aquapura','andeng_store','george_cable','rh_meat','coke_zero','short_pau','venyen_zonrox','vale_pau_cam_id','admin_gretch_sa']) {
+        if (merged[k] === undefined) merged[k] = Number(prev[k] || 0);
+        else merged[k] = Number(merged[k] || 0);
+      }
+      if (merged.custom_expenses === undefined) {
+        try { merged.custom_expenses = prev.custom_expenses ? JSON.parse(prev.custom_expenses) : []; }
+        catch { merged.custom_expenses = []; }
+      }
+      // Normalize numeric strings to numbers (avoid "100"+"100" concat)
+      for (const k of Object.keys(merged)) {
+        if (typeof merged[k] === 'string' && merged[k] !== '' && !isNaN(Number(merged[k]))) merged[k] = Number(merged[k]);
+      }
+      const expensesFixed = merged;
+
       // Calculate totals
       const col1Total =
-        (expenses.kitchen_expenses || 0) +
-        (expenses.wilkins_pure || 0) +
-        (expenses.ate_lanie_beddings || 0) +
-        (expenses.krico_gas_laundry || 0) +
-        (expenses.tissue_flexi_cling || 0) +
-        (expenses.miscellaneous || 0) +
-        (expenses.kovi || 0) +
-        (expenses.cm_surc_rh || 0) +
-        (expenses.lempo || 0) +
-        (expenses.marbont || 0) +
-        (expenses.aquapura || 0) +
-        (expenses.andeng_store || 0) +
-        (expenses.george_cable || 0) +
-        (expenses.rh_meat || 0) +
-        (expenses.coke_zero || 0) +
-        (expenses.short_pau || 0) +
-        (expenses.venyen_zonrox || 0);
+        (expensesFixed.kitchen_expenses || 0) +
+        (expensesFixed.wilkins_pure || 0) +
+        (expensesFixed.ate_lanie_beddings || 0) +
+        (expensesFixed.krico_gas_laundry || 0) +
+        (expensesFixed.tissue_flexi_cling || 0) +
+        (expensesFixed.miscellaneous || 0) +
+        (expensesFixed.kovi || 0) +
+        (expensesFixed.cm_surc_rh || 0) +
+        (expensesFixed.lempo || 0) +
+        (expensesFixed.marbont || 0) +
+        (expensesFixed.aquapura || 0) +
+        (expensesFixed.andeng_store || 0) +
+        (expensesFixed.george_cable || 0) +
+        (expensesFixed.rh_meat || 0) +
+        (expensesFixed.coke_zero || 0) +
+        (expensesFixed.short_pau || 0) +
+        (expensesFixed.venyen_zonrox || 0);
 
-      const col2Total = (expenses.vale_pau_cam_id || 0) + (expenses.admin_gretch_sa || 0);
+      const col2Total = (expensesFixed.vale_pau_cam_id || 0) + (expensesFixed.admin_gretch_sa || 0);
 
-      const customExpenses = expenses.custom_expenses || [];
+      const customExpenses = expensesFixed.custom_expenses || [];
       const customCol1Total = customExpenses
-        .filter((e: any) => e.category === 'col1')
-        .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+        .filter((e: any) => e.category === 'col1' || e.category === 'Kitchen & Bedding')
+        .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
       const customCol2Total = customExpenses
-        .filter((e: any) => e.category === 'col2')
-        .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+        .filter((e: any) => e.category === 'col2' || e.category === 'Admin & Hardware')
+        .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
 
       await pool.query(
         `INSERT INTO weekly_expenses (
@@ -491,25 +547,25 @@ export class WeeklyReportAggregator {
         [
           startStr,
           endStr,
-          expenses.kitchen_expenses || 0,
-          expenses.wilkins_pure || 0,
-          expenses.ate_lanie_beddings || 0,
-          expenses.krico_gas_laundry || 0,
-          expenses.tissue_flexi_cling || 0,
-          expenses.miscellaneous || 0,
-          expenses.kovi || 0,
-          expenses.cm_surc_rh || 0,
-          expenses.lempo || 0,
-          expenses.marbont || 0,
-          expenses.aquapura || 0,
-          expenses.andeng_store || 0,
-          expenses.george_cable || 0,
-          expenses.rh_meat || 0,
-          expenses.coke_zero || 0,
-          expenses.short_pau || 0,
-          expenses.venyen_zonrox || 0,
-          expenses.vale_pau_cam_id || 0,
-          expenses.admin_gretch_sa || 0,
+          expensesFixed.kitchen_expenses || 0,
+          expensesFixed.wilkins_pure || 0,
+          expensesFixed.ate_lanie_beddings || 0,
+          expensesFixed.krico_gas_laundry || 0,
+          expensesFixed.tissue_flexi_cling || 0,
+          expensesFixed.miscellaneous || 0,
+          expensesFixed.kovi || 0,
+          expensesFixed.cm_surc_rh || 0,
+          expensesFixed.lempo || 0,
+          expensesFixed.marbont || 0,
+          expensesFixed.aquapura || 0,
+          expensesFixed.andeng_store || 0,
+          expensesFixed.george_cable || 0,
+          expensesFixed.rh_meat || 0,
+          expensesFixed.coke_zero || 0,
+          expensesFixed.short_pau || 0,
+          expensesFixed.venyen_zonrox || 0,
+          expensesFixed.vale_pau_cam_id || 0,
+          expensesFixed.admin_gretch_sa || 0,
           JSON.stringify(customExpenses),
           col1Total + customCol1Total,
           col2Total + customCol2Total,

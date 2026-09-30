@@ -104,8 +104,8 @@ const BORDERS: Partial<ExcelJS.Borders> = {
   right: { style: 'thin' },
 };
 
-function formatAmount(amount: number | undefined): number | string {
-  if (amount === undefined || amount === 0) return '-';
+function formatAmount(amount: number | undefined): number {
+  if (amount === undefined) return 0;
   return amount;
 }
 

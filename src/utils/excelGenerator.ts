@@ -155,7 +155,9 @@ export const downloadExecutiveFinancialWorkbook = async (
 
       if (r.items) {
         r.items.forEach((it) => {
-          if (it.description?.toLowerCase().includes('discount') || it.amount < 0) {
+          const d = String(it.description || '').toLowerCase();
+          if (/deposit/.test(d)) return; // deposit-applied is not a discount
+          if (d.includes('discount') || it.amount < 0) {
             totalDiscounts += Math.abs(it.amount);
             discountCount++;
           }
@@ -726,6 +728,140 @@ export const downloadExecutiveFinancialWorkbook = async (
       setupPrint(ws);
     }
 
+    // ==========================================
+    // TAB 7: GUEST COUNT & HEADCOUNT AUDIT SUMMARY
+    // ==========================================
+    {
+      const ws = wb.addWorksheet('Guest Count Summary');
+      ws.columns = [
+        { width: 34 }, { width: 18 }, { width: 22 }, { width: 26 }, { width: 24 }
+      ];
+      const r0 = addTitleBlock(
+        ws,
+        'GUEST HEADCOUNT & STAY CAPACITY AUDIT SUMMARY',
+        `Reporting Period: ${periodLabel} | Export: ${exportTimestamp} | Sedona Court PMS`,
+        ctrl,
+        5
+      );
+
+      let r = r0;
+
+      // Helper to compute headcount from receipt
+      const parseGuestCount = (rec: Receipt): number => {
+        const extraPersonItem = (rec.items || []).find((it) =>
+          it.description?.toLowerCase().includes('extra person') ||
+          it.description?.toLowerCase().includes('extra guest')
+        );
+        let extraGuests = 0;
+        if (extraPersonItem) {
+          const match = extraPersonItem.subtext?.match(/(\d+)\s*Extra/i) || extraPersonItem.description?.match(/(\d+)\s*Extra/i);
+          if (match) {
+            extraGuests = parseInt(match[1], 10) || 0;
+          } else if (extraPersonItem.amount > 0) {
+            extraGuests = Math.round(extraPersonItem.amount / 150);
+          }
+        }
+        const isRoom = Boolean(rec.roomNumber && rec.roomNumber !== 'POS');
+        return (isRoom ? 2 : 1) + extraGuests;
+      };
+
+      const totalGuestsReceipts = sessionReceipts.reduce((sum, rec) => sum + parseGuestCount(rec), 0);
+      const totalCheckinsShifts = reports.reduce((sum, rep) => sum + rep.checkins, 0);
+      const inHouseCount = rooms
+        .filter(rm => (rm.state === 'occupied' || rm.state === 'overdue') && !rm.isStaffHouse && rm.roomType !== 'Staff House' && rm.number !== '12')
+        .reduce((sum, rm) => sum + (rm.numGuests || 2), 0);
+      const totalHeadcount = inHouseCount + (totalGuestsReceipts > 0 ? totalGuestsReceipts : totalCheckinsShifts * 2);
+
+      // Section I: Summary
+      sectionBar(ws, r, 5, 'I. GUEST HEADCOUNT & CAPACITY SUMMARY'); r += 1;
+      ws.getCell(`A${r}`).value = 'METRIC';
+      ws.getCell(`B${r}`).value = 'HEADCOUNT (PAX)';
+      ws.getCell(`C${r}`).value = 'UNIT / BASIS';
+      ws.getCell(`D${r}`).value = 'REVENUE YIELD (PHP)';
+      ws.getCell(`E${r}`).value = 'AUDIT STATUS';
+      styleHeaderRow(ws, r, 5); r += 1;
+
+      const addGuestRow = (label: string, pax: number, unit: string, rev: number, status: string, tone?: 'good' | 'warn') => {
+        ws.getCell(`A${r}`).value = label;
+        ws.getCell(`B${r}`).value = pax;
+        asInt(ws.getCell(`B${r}`));
+        ws.getCell(`C${r}`).value = unit;
+        ws.getCell(`D${r}`).value = rev;
+        asPeso(ws.getCell(`D${r}`));
+        ws.getCell(`E${r}`).value = status;
+        if (tone) statusFill(ws.getCell(`E${r}`), tone);
+        for (let c = 1; c <= 5; c++) gridBorders(ws.getCell(r, c));
+        r += 1;
+      };
+
+      addGuestRow('Current Active In-House Guests', inHouseCount, `${rooms.filter(rm => rm.state === 'occupied' || rm.state === 'overdue').length} Occupied Rooms`, roomChannel, 'Live In-House', 'good');
+      addGuestRow('Completed Check-Out Guests', totalGuestsReceipts > 0 ? totalGuestsReceipts : totalCheckinsShifts * 2, `${sessionReceipts.length || totalCheckinsShifts} Check-Out Invoices`, grossRevenue, 'Verified Check-Outs');
+      addGuestRow('Total Period Guest Headcount', totalHeadcount, 'Total Property Guest Turnout', grossRevenue, 'Consolidated Total', 'good');
+
+      // Section II: Shift-by-Shift Breakdown
+      r += 1;
+      sectionBar(ws, r, 5, 'II. SHIFT-BY-SHIFT GUEST BREAKDOWN'); r += 1;
+      ws.getCell(`A${r}`).value = 'SHIFT ROTATION / DATE';
+      ws.getCell(`B${r}`).value = 'CHECK-INS';
+      ws.getCell(`C${r}`).value = 'CHECK-OUTS';
+      ws.getCell(`D${r}`).value = 'REVENUE (PHP)';
+      ws.getCell(`E${r}`).value = 'EST. GUEST HEADCOUNT';
+      styleHeaderRow(ws, r, 5); r += 1;
+
+      for (const rep of reports) {
+        ws.getCell(`A${r}`).value = `${rep.date} (${rep.dayOfWeek}) - ${rep.shift} SHIFT (${rep.cashier})`;
+        ws.getCell(`B${r}`).value = rep.checkins;
+        asInt(ws.getCell(`B${r}`));
+        ws.getCell(`C${r}`).value = rep.out;
+        asInt(ws.getCell(`C${r}`));
+        ws.getCell(`D${r}`).value = rep.received;
+        asPeso(ws.getCell(`D${r}`));
+        ws.getCell(`E${r}`).value = rep.checkins * 2;
+        asInt(ws.getCell(`E${r}`));
+        for (let c = 1; c <= 5; c++) gridBorders(ws.getCell(r, c));
+        r += 1;
+      }
+
+      // Section III: Room Type Breakdown
+      r += 1;
+      sectionBar(ws, r, 5, 'III. ROOM TIER GUEST & OCCUPANCY BREAKDOWN'); r += 1;
+      ws.getCell(`A${r}`).value = 'ROOM TYPE / TIER';
+      ws.getCell(`B${r}`).value = 'INVENTORY CAPACITY';
+      ws.getCell(`C${r}`).value = 'ACTIVE GUESTS (PAX)';
+      ws.getCell(`D${r}`).value = 'TIER REVENUE (PHP)';
+      ws.getCell(`E${r}`).value = 'REV / GUEST (RevPAG)';
+      styleHeaderRow(ws, r, 5); r += 1;
+
+      const tiers = [
+        { name: 'Classic Room (Standard)', tier: 'Standard', capacity: 16 },
+        { name: 'Premium Room (Deluxe)', tier: 'Deluxe', capacity: 12 },
+        { name: 'VIP Suite (Suite)', tier: 'Suite', capacity: 4 },
+      ];
+
+      for (const t of tiers) {
+        const tierRooms = rooms.filter(rm => rm.tier === t.tier);
+        const tierOccupied = tierRooms.filter(rm => rm.state === 'occupied' || rm.state === 'overdue');
+        const tierGuests = tierOccupied.reduce((sum, rm) => sum + (rm.numGuests || 2), 0);
+        const tierReceipts = sessionReceipts.filter(rc => rc.roomType?.toLowerCase().includes(t.tier.toLowerCase()) || rc.roomType?.toLowerCase().includes(t.name.split(' ')[0].toLowerCase()));
+        const tierRev = tierReceipts.reduce((sum, rc) => sum + rc.total, 0);
+        const tierRevPag = tierGuests > 0 ? tierRev / tierGuests : 0;
+
+        ws.getCell(`A${r}`).value = t.name;
+        ws.getCell(`B${r}`).value = `${t.capacity} Rooms`;
+        ws.getCell(`C${r}`).value = tierGuests;
+        asInt(ws.getCell(`C${r}`));
+        ws.getCell(`D${r}`).value = tierRev;
+        asPeso(ws.getCell(`D${r}`));
+        ws.getCell(`E${r}`).value = tierRevPag;
+        asPeso(ws.getCell(`E${r}`));
+        for (let c = 1; c <= 5; c++) gridBorders(ws.getCell(r, c));
+        r += 1;
+      }
+
+      ws.views = [{ state: 'frozen', ySplit: r0 }];
+      setupPrint(ws);
+    }
+
     // Generate file name with ISO date
     const cleanDate = new Date().toISOString().slice(0, 10);
     await downloadWorkbook(wb, `Sedona_Court_Financial_Audit_${cleanDate}.xlsx`);
@@ -977,15 +1113,53 @@ export const downloadTransactionLedgerExcel = async (
 
     const ws = wb.addWorksheet('Transactions Ledger');
     const headers = [
-      'RECEIPT NO', 'DATE & TIME', 'ROOM NO', 'ROOM TYPE', 'DECLARED STAY', 'GUEST NAME',
-      'PAYMENT METHOD', 'GCASH REF #', 'ITEMIZED ORDERS',
-      'SUBTOTAL', 'SERVICE CHARGE', 'TOTAL PAID (PHP)', 'DISCOUNT TYPE', 'DISCOUNT', 'DISC REF', 'CASHIER ID',
+      'DATE / TIME',
+      'RECEIPT NO',
+      'ROOM NO',
+      'ROOM TYPE',
+      'GUEST NAME',
+      'HEADCOUNT (PAX)',
+      'SETTLEMENT METHOD',
+      'TOTAL AMOUNT (PHP)',
+      'AMOUNT TENDERED (PHP)',
+      'CHANGE (PHP)',
+      'CHECK IN',
+      'CHECK OUT',
+      'TIME CONSUMED',
+      'GCASH REF #',
+      'ITEMIZED ORDERS',
+      'SUBTOTAL (PHP)',
+      'SERVICE CHARGE (PHP)',
+      'DISCOUNT TYPE',
+      'DISCOUNT (PHP)',
+      'DISC REF',
+      'CASHIER ID',
     ];
+
     ws.columns = [
-      { width: 16 }, { width: 22 }, { width: 12 }, { width: 16 }, { width: 20 }, { width: 22 },
-      { width: 18 }, { width: 18 }, { width: 48 },
-      { width: 15 }, { width: 15 }, { width: 18 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 14 },
+      { width: 22 }, // DATE / TIME
+      { width: 16 }, // RECEIPT NO
+      { width: 12 }, // ROOM NO
+      { width: 16 }, // ROOM TYPE
+      { width: 22 }, // GUEST NAME
+      { width: 16 }, // HEADCOUNT (PAX)
+      { width: 20 }, // SETTLEMENT METHOD
+      { width: 18 }, // TOTAL AMOUNT (PHP)
+      { width: 22 }, // AMOUNT TENDERED (PHP)
+      { width: 14 }, // CHANGE (PHP)
+      { width: 22 }, // CHECK IN
+      { width: 22 }, // CHECK OUT
+      { width: 18 }, // TIME CONSUMED
+      { width: 18 }, // GCASH REF #
+      { width: 48 }, // ITEMIZED ORDERS
+      { width: 16 }, // SUBTOTAL (PHP)
+      { width: 18 }, // SERVICE CHARGE (PHP)
+      { width: 16 }, // DISCOUNT TYPE
+      { width: 16 }, // DISCOUNT (PHP)
+      { width: 16 }, // DISC REF
+      { width: 14 }, // CASHIER ID
     ];
+
     const r0 = addTitleBlock(
       ws,
       `TRANSACTION LEDGER AUDIT EXPORT - ${filterTitle.toUpperCase()}`,
@@ -999,53 +1173,114 @@ export const downloadTransactionLedgerExcel = async (
     styleHeaderRow(ws, r0, headers.length);
 
     let r = r0 + 1;
+    let totalPax = 0;
+    let totalAmount = 0;
+    let totalTendered = 0;
+    let totalChange = 0;
+    let totalSubtotal = 0;
+    let totalServiceCharge = 0;
+    let totalDiscount = 0;
+
     for (const rec of receipts) {
+      const recAny = rec as any;
       const itemsList = rec.items && rec.items.length > 0
-        ? rec.items.map((i) => `${i.description} (${i.subtext || '1x'}) - ₱${i.amount.toLocaleString()}`).join('; ')
+        ? rec.items.map((i: any) => `${i.description} (${i.subtext || (i.quantity ? `${i.quantity}x` : '1x')}) - ₱${(i.amount || 0).toLocaleString()}`).join('; ')
         : 'Room Stay Charges';
       const disc = discountInfo(rec);
-      const vals: Array<number | string> = [
-        rec.receiptNo,
-        rec.dateTime ? new Date(rec.dateTime).toLocaleString() : '-',
-        rec.roomNumber || 'POS',
-        rec.roomType || 'Standard',
-        rec.stayDuration || (rec.rateSelected ? `${rec.rateSelected.toUpperCase()} Stay` : 'Standard'),
-        rec.guestName || 'Walk-In Guest',
-        rec.paymentMethod === 'MIXED' ? `MIXED (Cash: ₱${(rec.cashAmount || 0).toLocaleString()} / GCash: ₱${(rec.gcashAmount || 0).toLocaleString()})` : rec.paymentMethod,
-        rec.gcashRef || '-',
-        itemsList,
-        rec.subtotal,
-        rec.serviceCharge || 0,
-        rec.total,
-        disc.type,
-        disc.amount,
-        disc.ref,
-        rec.cashierId || 'Frontdesk',
+      
+      const extraPersons = rec.items?.filter((it: any) => 
+        it.description?.toLowerCase().includes('extra-person') || 
+        it.description?.toLowerCase().includes('extra person')
+      ).reduce((s: number, it: any) => s + (it.quantity || 1), 0) || 0;
+      
+      const pax = recAny.numberOfGuests || recAny.pax || (rec.roomNumber ? (2 + extraPersons) : 1);
+      const tendered = rec.amountTendered !== undefined 
+        ? rec.amountTendered 
+        : (rec.paymentMethod === 'GCASH' ? rec.total : (rec.cashAmount ? (rec.cashAmount + (rec.gcashAmount || 0)) : rec.total));
+      const change = rec.changeAmount !== undefined ? rec.changeAmount : (recAny.change !== undefined ? recAny.change : (tendered > rec.total ? tendered - rec.total : 0));
+
+      totalPax += pax;
+      totalAmount += rec.total;
+      totalTendered += tendered;
+      totalChange += change;
+      totalSubtotal += rec.subtotal;
+      totalServiceCharge += (rec.serviceCharge || 0);
+      totalDiscount += disc.amount;
+
+      // Prepare cell values
+      const parsedDate = rec.dateTime ? new Date(rec.dateTime) : (recAny.timestamp ? new Date(recAny.timestamp) : null);
+      const parsedIn = recAny.checkInTime ? new Date(recAny.checkInTime) : (rec.checkIn ? new Date(rec.checkIn) : null);
+      const parsedOut = recAny.checkOutTime ? new Date(recAny.checkOutTime) : (rec.checkOut ? new Date(rec.checkOut) : null);
+
+      const rowValues: Array<{ val: any; isDate?: boolean; isPeso?: boolean; isInt?: boolean }> = [
+        { val: parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : (rec.dateTime || '-'), isDate: !!(parsedDate && !isNaN(parsedDate.getTime())) },
+        { val: rec.receiptNo },
+        { val: rec.roomNumber || 'POS' },
+        { val: rec.roomType || 'Standard' },
+        { val: rec.guestName || 'Walk-In Guest' },
+        { val: pax, isInt: true },
+        { val: rec.paymentMethod === 'MIXED' ? `MIXED (Cash: ₱${(rec.cashAmount || 0).toLocaleString()} / GCash: ₱${(rec.gcashAmount || 0).toLocaleString()})` : (rec.paymentMethod || 'CASH') },
+        { val: rec.total, isPeso: true },
+        { val: tendered, isPeso: true },
+        { val: change, isPeso: true },
+        { val: parsedIn && !isNaN(parsedIn.getTime()) ? parsedIn : (recAny.checkInTime || rec.checkIn || '-'), isDate: !!(parsedIn && !isNaN(parsedIn.getTime())) },
+        { val: parsedOut && !isNaN(parsedOut.getTime()) ? parsedOut : (recAny.checkOutTime || rec.checkOut || '-'), isDate: !!(parsedOut && !isNaN(parsedOut.getTime())) },
+        { val: rec.timeConsumed || rec.stayDuration || (rec.rateSelected ? `${rec.rateSelected.toUpperCase()} Stay` : '-') },
+        { val: rec.gcashRef || recAny.referenceNumber || '-' },
+        { val: itemsList },
+        { val: rec.subtotal, isPeso: true },
+        { val: rec.serviceCharge || 0, isPeso: true },
+        { val: disc.type },
+        { val: disc.amount, isPeso: true },
+        { val: disc.ref },
+        { val: rec.cashierId || recAny.cashier || 'Frontdesk' },
       ];
-      vals.forEach((v, i) => {
+
+      rowValues.forEach((item, i) => {
         const cell = ws.getCell(r, i + 1);
-        cell.value = v;
+        cell.value = item.val;
         gridBorders(cell);
-        if (typeof v === 'number' && [9, 10, 11, 13].includes(i)) asPeso(cell);
+        if (item.isDate) {
+          cell.numFmt = 'yyyy-mm-dd hh:mm AM/PM';
+        } else if (item.isPeso) {
+          asPeso(cell);
+        } else if (item.isInt) {
+          asInt(cell);
+        }
       });
       r += 1;
     }
 
     // Totals Row
-    const totals: Array<number | string> = [
-      'TOTALS', '', '', '', '', '', '', '',
-      `${receipts.length} Receipt(s) Filtered`,
-      receipts.reduce((s, x) => s + x.subtotal, 0),
-      receipts.reduce((s, x) => s + (x.serviceCharge || 0), 0),
-      receipts.reduce((s, x) => s + x.total, 0),
-      '',
-      receipts.reduce((s, x) => s + discountInfo(x).amount, 0),
-      '', '',
+    const totals: Array<{ val: any; isPeso?: boolean; isInt?: boolean }> = [
+      { val: 'TOTALS' },
+      { val: `${receipts.length} Invoices` },
+      { val: '' },
+      { val: '' },
+      { val: '' },
+      { val: totalPax, isInt: true },
+      { val: '' },
+      { val: totalAmount, isPeso: true },
+      { val: totalTendered, isPeso: true },
+      { val: totalChange, isPeso: true },
+      { val: '' },
+      { val: '' },
+      { val: '' },
+      { val: '' },
+      { val: '' },
+      { val: totalSubtotal, isPeso: true },
+      { val: totalServiceCharge, isPeso: true },
+      { val: '' },
+      { val: totalDiscount, isPeso: true },
+      { val: '' },
+      { val: '' },
     ];
-    totals.forEach((v, i) => {
+
+    totals.forEach((item, i) => {
       const cell = ws.getCell(r, i + 1);
-      cell.value = v;
-      if (typeof v === 'number' && [9, 10, 11, 13].includes(i)) asPeso(cell);
+      cell.value = item.val;
+      if (item.isPeso) asPeso(cell);
+      else if (item.isInt) asInt(cell);
     });
     styleTotalsRow(ws.getRow(r), headers.length);
 

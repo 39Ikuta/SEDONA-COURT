@@ -12,6 +12,7 @@ import { pool } from '../db/pool';
 import { requireAuth } from '../middleware/auth';
 import { startOfWeek, endOfWeek, parseISO, format, differenceInDays } from 'date-fns';
 import { asyncHandler } from '../utils/async-handler';
+import { analyticsService } from '../services/analytics-service';
 
 const router = Router();
 router.use(requireAuth);
@@ -45,10 +46,12 @@ router.get('/financial-summary', asyncHandler(async (req: Request, res: Response
       endDate = format(parsedEnd, 'yyyy-MM-dd');
     }
 
-    // 1. Query receipts within the date range
+    // 1. Query receipts within the date range (valid sales only — voids/FCE excluded)
     const receiptsResult = await pool.query(
       `SELECT * FROM receipts 
        WHERE date_time >= ? AND date_time <= ?
+         AND (status IS NULL OR status = 'valid')
+         AND receipt_no NOT LIKE 'FCE-%'
        ORDER BY date_time ASC`,
       [startDate, `${endDate}T23:59:59.999Z`]
     );
@@ -117,18 +120,20 @@ router.get('/financial-summary', asyncHandler(async (req: Request, res: Response
       items.forEach((it: any) => {
         const desc = (it.description || '').toLowerCase();
         const amt = parseFloat(it.amount || 0);
+        const hasWord = (w: string) => new RegExp(`\\b${w}\\b`).test(desc);
 
-        if (desc.includes('discount') || desc.includes('pwd') || desc.includes('senior')) {
-          totalSeniorPwdDiscounts += Math.abs(amt);
-          seniorPwdDiscountCount++;
-        } else if (desc.includes('room') || desc.includes('stay') || desc.includes('rent')) {
+        if (hasWord('discount') || hasWord('pwd') || hasWord('senior')) {
+          // Exclude deposit-applied lines mislabeled as discount (server writes 'Security Deposit Applied')
+          if (/deposit/.test(desc)) { miscellRevenue += amt; }
+          else { totalSeniorPwdDiscounts += Math.abs(amt); seniorPwdDiscountCount++; }
+        } else if (hasWord('room') || hasWord('stay') || hasWord('rent')) {
           roomRevenue += amt;
           totalCheckinsCount++;
-        } else if (desc.includes('kitchen') || desc.includes('food') || desc.includes('silog') || desc.includes('meal') || desc.includes('sandwich')) {
+        } else if (hasWord('kitchen') || hasWord('food') || hasWord('silog') || hasWord('meal') || hasWord('sandwich')) {
           kitchenRevenue += amt;
-        } else if (desc.includes('drink') || desc.includes('coffee') || desc.includes('water') || desc.includes('beer') || desc.includes('shake') || desc.includes('soda')) {
+        } else if (hasWord('drink') || hasWord('drinks') || hasWord('coffee') || hasWord('water') || hasWord('beer') || hasWord('shake') || hasWord('soda')) {
           drinksRevenue += amt;
-        } else if (desc.includes('extra bed') || desc.includes('towel') || desc.includes('pillow') || desc.includes('extra person')) {
+        } else if (desc.includes('extra bed') || hasWord('towel') || hasWord('pillow') || desc.includes('extra person')) {
           extrasRevenue += amt;
         } else {
           miscellRevenue += amt;
@@ -231,6 +236,30 @@ router.get('/financial-summary', asyncHandler(async (req: Request, res: Response
     console.error('GET /api/analytics/financial-summary error:', err);
     res.status(500).json({ error: 'Failed to generate financial summary' });
   }
+}));
+
+/**
+ * GET /api/analytics/guest-counts
+ * Authoritative guest count & hospitality breakdown for day / shift.
+ * Role check: Owner and Admin only. Cashier is restricted (403).
+ */
+router.get('/guest-counts', asyncHandler(async (req: Request, res: Response) => {
+  const operator = (req as any).operator;
+  if (!operator || !['admin', 'owner'].includes(operator.role)) {
+    res.status(403).json({ error: 'Access denied: guest counts and occupancy analytics are restricted to Admin and Owner' });
+    return;
+  }
+
+  const { date, shift, from, to, businessDayStart } = req.query as Record<string, string>;
+  const metrics = await analyticsService.getGuestCountMetrics({
+    date,
+    shift: shift as any,
+    from,
+    to,
+    businessDayStart,
+  });
+
+  res.json(metrics);
 }));
 
 export default router;
