@@ -3,7 +3,7 @@
  * Frontend API client for guest deposits and credit balance ledger.
  */
 
-import { DepositTransaction, DepositBalanceInfo } from '../types';
+import { DepositTransaction, DepositBalanceInfo, Deposit } from '../types';
 import { apiFetch } from './client';
 
 export async function getGuestDepositBalance(guestIdentifier: string): Promise<DepositBalanceInfo> {
@@ -86,3 +86,59 @@ export async function applyDeposit(params: ApplyDepositParams): Promise<{
     }),
   });
 }
+
+export async function collectSecurityDeposit(params: {
+  roomNumber: string | number;
+  amountCents: number;
+  paymentMethod?: 'CASH' | 'GCASH' | 'MIXED';
+  guestName?: string;
+  bookingId?: string | number;
+  notes?: string;
+  idempotencyKey?: string;
+}): Promise<{ deposit: Deposit; escposBufferBase64?: string }> {
+  const key = params.idempotencyKey || (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `sec-key-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`);
+  return apiFetch('/deposits/security', {
+    method: 'POST',
+    headers: { 'X-Idempotency-Key': key },
+    body: JSON.stringify({ ...params, idempotencyKey: key }),
+  });
+}
+
+export async function getActiveRoomDeposit(roomNumber: string | number): Promise<{
+  hasHeldDeposit: boolean;
+  deposit: Deposit | null;
+}> {
+  return apiFetch<{ hasHeldDeposit: boolean; deposit: Deposit | null }>(`/deposits/active/${roomNumber}`);
+}
+
+export async function resolveDeposit(
+  depositNumber: string,
+  params: {
+    action: 'refund' | 'apply' | 'forfeit';
+    notes?: string;
+    linkedReceiptNo?: string;
+  }
+): Promise<{
+  deposit: Deposit;
+  escposBufferBase64?: string;
+}> {
+  return apiFetch<{ deposit: Deposit; escposBufferBase64?: string }>(`/deposits/${depositNumber}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getAllDeposits(filters?: {
+  status?: string;
+  limit?: number;
+}): Promise<Deposit[]> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.append('status', filters.status);
+  if (filters?.limit) params.append('limit', String(filters.limit));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiFetch<Deposit[]>(`/deposits/all${qs}`);
+}
+
+

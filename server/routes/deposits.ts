@@ -15,9 +15,16 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool, withTransaction } from '../db/pool';
-import { requireDepositStaff } from '../middleware/auth';
+import { requireDepositStaff, requireCashierStaff } from '../middleware/auth';
 import { socketManager } from '../websocket/socket-manager';
 import { asyncHandler } from '../utils/async-handler';
+import { sequenceService } from '../services/sequence-service';
+import {
+  buildDepositSlipEscPosBuffer,
+  buildDepositRefundSlipEscPosBuffer,
+  DepositSlipPrintOptions,
+  DepositRefundSlipPrintOptions,
+} from '../utils/escpos';
 
 const router = Router();
 
@@ -464,16 +471,24 @@ router.post('/apply', requireDepositStaff, asyncHandler(async (req: Request, res
         await conn.query(
           `UPDATE rooms SET 
              check_out_time = ?, 
+             expected_checkout_at = ?,
+             alarm_state = 'NORMAL',
+             acknowledged_at = NULL,
+             acknowledged_by = NULL,
              state = 'occupied', 
              is_overdue = 0, 
-             updated_at = datetime('now', 'localtime') 
+             updated_at = NOW() 
            WHERE number = ?`,
-          [newCheckoutIso, roomNumber]
+          [newCheckoutIso, newCheckoutIso, roomNumber]
         );
 
         updatedRoom = {
           number: roomNumber,
           checkOutTime: newCheckoutIso,
+          expectedCheckoutAt: newCheckoutIso,
+          alarmState: 'NORMAL',
+          acknowledgedAt: null,
+          acknowledgedBy: null,
           state: 'occupied',
           isOverdue: false,
         };
@@ -539,6 +554,17 @@ router.post('/apply', requireDepositStaff, asyncHandler(async (req: Request, res
         roomNumber: result.updatedRoom.number,
         state: 'occupied',
         checkOutTime: result.updatedRoom.checkOutTime,
+        expectedCheckoutAt: result.updatedRoom.expectedCheckoutAt,
+        alarmState: result.updatedRoom.alarmState,
+        timestamp: new Date().toISOString(),
+      });
+      socketManager.broadcastAlarmStateChanged({
+        roomNumber: result.updatedRoom.number,
+        previousState: 'OVERDUE',
+        newState: 'NORMAL',
+        expectedCheckoutAt: result.updatedRoom.expectedCheckoutAt,
+        acknowledgedAt: null,
+        acknowledgedBy: null,
         timestamp: new Date().toISOString(),
       });
     }
@@ -557,6 +583,407 @@ router.post('/apply', requireDepositStaff, asyncHandler(async (req: Request, res
     console.error('POST /api/deposits/apply error:', err);
     res.status(err.statusCode || 500).json({ error: err.message || 'Failed to apply deposit' });
   }
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOM SECURITY DEPOSITS (Official Sequential DEP-XXXXXX Slips & Resolutions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function rowToSecurityDeposit(row: any) {
+  let depositSnapshot = null;
+  let resolutionSnapshot = null;
+  try {
+    if (row.deposit_snapshot) {
+      depositSnapshot = typeof row.deposit_snapshot === 'string' ? JSON.parse(row.deposit_snapshot) : row.deposit_snapshot;
+    }
+  } catch (e) {
+    depositSnapshot = null;
+  }
+  try {
+    if (row.resolution_snapshot) {
+      resolutionSnapshot = typeof row.resolution_snapshot === 'string' ? JSON.parse(row.resolution_snapshot) : row.resolution_snapshot;
+    }
+  } catch (e) {
+    resolutionSnapshot = null;
+  }
+
+  return {
+    id: row.id,
+    bookingId: row.booking_id || null,
+    roomId: String(row.room_id || ''),
+    amountCents: Number(row.amount_cents || 0),
+    amount: Number(row.amount_cents || 0) / 100,
+    status: row.status as 'held' | 'refunded' | 'applied' | 'forfeited',
+    collectedBy: row.collected_by,
+    collectedAt: row.collected_at instanceof Date ? row.collected_at.toISOString() : String(row.collected_at),
+    resolvedBy: row.resolved_by || null,
+    resolvedAt: row.resolved_at instanceof Date ? row.resolved_at.toISOString() : (row.resolved_at ? String(row.resolved_at) : null),
+    depositNumber: row.deposit_number,
+    notes: row.notes || null,
+    refundAmountCents: Number(row.refund_amount_cents || 0),
+    refundAmount: Number(row.refund_amount_cents || 0) / 100,
+    appliedAmountCents: Number(row.applied_amount_cents || 0),
+    appliedAmount: Number(row.applied_amount_cents || 0) / 100,
+    linkedReceiptNo: row.linked_receipt_no || null,
+    depositSnapshot,
+    resolutionSnapshot,
+    reprintCount: Number(row.reprint_count || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// GET /api/deposits/active/:roomNumber — Get active held deposit for a room
+router.get('/active/:roomNumber', requireDepositStaff, asyncHandler(async (req: Request, res: Response) => {
+  const { roomNumber } = req.params;
+  const result = await pool.query(
+    `SELECT * FROM deposits WHERE room_id = ? AND status = 'held' ORDER BY id DESC LIMIT 1`,
+    [String(roomNumber)]
+  );
+
+  if (result.rows.length === 0) {
+    return res.json({ hasHeldDeposit: false, deposit: null });
+  }
+
+  const deposit = rowToSecurityDeposit(result.rows[0]);
+  return res.json({ hasHeldDeposit: true, deposit });
+}));
+
+// GET /api/deposits/room/:roomNumber — List all deposits for a room
+router.get('/room/:roomNumber', requireDepositStaff, asyncHandler(async (req: Request, res: Response) => {
+  const { roomNumber } = req.params;
+  const result = await pool.query(
+    `SELECT * FROM deposits WHERE room_id = ? ORDER BY id DESC`,
+    [String(roomNumber)]
+  );
+  return res.json(result.rows.map(rowToSecurityDeposit));
+}));
+
+// POST /api/deposits/security — Collect a new security deposit for a room
+router.post('/security', requireDepositStaff, asyncHandler(async (req: Request, res: Response) => {
+  const body = req.body || {};
+  const operator = (req as any).operator?.username || 'Frontdesk';
+  const idempotencyKey = String(req.headers['x-idempotency-key'] || body.idempotencyKey || '').trim();
+  const {
+    roomNumber,
+    bookingId,
+    amountCents: rawAmountCents,
+    amount: rawAmount,
+    paymentMethod = 'CASH',
+    notes = '',
+    guestName = 'Valued Guest',
+  } = body;
+
+  const roomNumStr = String(roomNumber || '').trim();
+  if (!roomNumStr) {
+    return res.status(400).json({ error: 'roomNumber is required' });
+  }
+
+  let amountCents = rawAmountCents;
+  if (amountCents === undefined && typeof rawAmount === 'number') {
+    amountCents = Math.round(rawAmount * 100);
+  }
+
+  if (typeof amountCents !== 'number' || !Number.isInteger(amountCents) || amountCents <= 0) {
+    return res.status(400).json({ error: 'amountCents must be a strictly positive integer' });
+  }
+
+  const result = await withTransaction(async (conn) => {
+    // Idempotency: return existing slip if key already seen (double-click safe)
+    if (idempotencyKey) {
+      const prior = await conn.query('SELECT * FROM deposits WHERE id = ? LIMIT 1', [`sec-${idempotencyKey}`]);
+      if (prior.rows.length > 0) {
+        const existing = rowToSecurityDeposit(prior.rows[0]);
+        return { deposit: existing, escposBufferBase64: '', alreadyExists: true as const };
+      }
+    }
+    // Check if room exists and is occupied
+    const roomRes = await conn.query('SELECT * FROM rooms WHERE number = ?', [roomNumStr]);
+    if (roomRes.rows.length === 0) {
+      throw Object.assign(new Error(`Room ${roomNumStr} not found`), { statusCode: 404 });
+    }
+    const room = roomRes.rows[0];
+    const finalGuestName = (guestName && guestName !== 'Valued Guest') ? guestName : (room.guest_name || 'Valued Guest');
+
+    // Allocate sequential deposit number DEP-{CASHIER}-{SHIFT}-{MMDDYY}-{SEQ}
+    const { depositNumber } = await sequenceService.allocateNextSequentialDepositNumber(conn, operator);
+
+    const depositId = idempotencyKey ? `sec-${idempotencyKey}` : `dep-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const nowIso = new Date().toISOString();
+
+    const snapshot = {
+      depositNumber,
+      dateTime: nowIso,
+      roomNumber: roomNumStr,
+      guestName: finalGuestName,
+      cashierId: operator,
+      amount: amountCents / 100,
+      amountCents,
+      paymentMethod,
+      notes,
+    };
+
+    await conn.query(
+      `INSERT INTO deposits (
+        id, booking_id, room_id, amount_cents, status,
+        collected_by, collected_at, deposit_number, notes,
+        deposit_snapshot, reprint_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'held', ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        depositId,
+        bookingId || null,
+        roomNumStr,
+        amountCents,
+        operator,
+        nowIso,
+        depositNumber,
+        notes || null,
+        JSON.stringify(snapshot),
+        nowIso,
+        nowIso,
+      ]
+    );
+
+    // Audit log
+    const auditLogId = `log-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+    await conn.query(
+      `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+       VALUES (?, datetime('now', 'localtime'), ?, 'DEPOSIT_COLLECTED', ?)`,
+      [
+        auditLogId,
+        operator,
+        `Collected ₱${(amountCents / 100).toFixed(2)} deposit (${depositNumber}) for Room ${roomNumStr} (${finalGuestName}) [Method: ${paymentMethod}]`,
+      ]
+    );
+
+    const createdRes = await conn.query('SELECT * FROM deposits WHERE id = ?', [depositId]);
+    const createdDeposit = rowToSecurityDeposit(createdRes.rows[0]);
+
+    // Build thermal ESC/POS buffer
+    const escposBuffer = buildDepositSlipEscPosBuffer({
+      depositNumber,
+      dateTime: nowIso,
+      roomNumber: roomNumStr,
+      guestName: finalGuestName,
+      cashierId: operator,
+      amount: amountCents / 100,
+      paymentMethod,
+      notes,
+    });
+
+    return {
+      deposit: createdDeposit,
+      escposBufferBase64: escposBuffer.toString('base64'),
+    };
+  });
+
+  socketManager.broadcast('deposit:created', {
+    depositNumber: result.deposit.depositNumber,
+    roomNumber: roomNumStr,
+    amountCents: result.deposit.amountCents,
+    status: 'held',
+    collectedBy: operator,
+    timestamp: new Date().toISOString(),
+  });
+
+  return res.status((result as any).alreadyExists ? 200 : 201).json(result);
+}));
+
+// POST /api/deposits/:depositNumber/resolve — Resolve deposit (refund, apply, forfeit)
+router.post('/:depositNumber/resolve', requireDepositStaff, asyncHandler(async (req: Request, res: Response) => {
+  const { depositNumber } = req.params;
+  const operator = (req as any).operator?.username || 'Frontdesk';
+  const role = (req as any).operator?.role || 'cashier';
+  const { action, notes = '', linkedReceiptNo } = req.body;
+
+  if (!['refund', 'apply', 'forfeit'].includes(action)) {
+    return res.status(400).json({ error: "action must be 'refund', 'apply', or 'forfeit'" });
+  }
+
+  if (action === 'forfeit' && !['admin', 'owner'].includes(role)) {
+    return res.status(403).json({ error: 'Only admin or owner can forfeit a deposit' });
+  }
+
+  const result = await withTransaction(async (conn) => {
+    const depRes = await conn.query('SELECT * FROM deposits WHERE deposit_number = ?', [depositNumber]);
+    if (depRes.rows.length === 0) {
+      throw Object.assign(new Error(`Deposit ${depositNumber} not found`), { statusCode: 404 });
+    }
+    const deposit = depRes.rows[0];
+
+    if (deposit.status !== 'held') {
+      throw Object.assign(new Error(`Deposit ${depositNumber} is already ${deposit.status}`), { statusCode: 400 });
+    }
+
+    const nowIso = new Date().toISOString();
+    const amountCents = Number(deposit.amount_cents || 0);
+    const targetStatus = action === 'refund' ? 'refunded' : action === 'apply' ? 'applied' : 'forfeited';
+    const refundAmountCents = action === 'refund' ? amountCents : 0;
+    const appliedAmountCents = action === 'apply' ? amountCents : 0;
+
+    let snapshotData: any = {};
+    try {
+      if (deposit.deposit_snapshot) {
+        snapshotData = typeof deposit.deposit_snapshot === 'string' ? JSON.parse(deposit.deposit_snapshot) : deposit.deposit_snapshot;
+      }
+    } catch (e) {
+      snapshotData = {};
+    }
+
+    const resolutionSnapshot = {
+      depositNumber,
+      dateTime: nowIso,
+      roomNumber: deposit.room_id,
+      guestName: snapshotData.guestName || 'Valued Guest',
+      cashierId: operator,
+      originalAmount: amountCents / 100,
+      refundAmount: refundAmountCents / 100,
+      appliedAmount: appliedAmountCents / 100,
+      status: targetStatus,
+      linkedReceiptNo: linkedReceiptNo || null,
+      notes,
+    };
+
+    await conn.query(
+      `UPDATE deposits SET
+         status = ?,
+         resolved_by = ?,
+         resolved_at = ?,
+         refund_amount_cents = ?,
+         applied_amount_cents = ?,
+         linked_receipt_no = ?,
+         resolution_snapshot = ?,
+         updated_at = ?
+       WHERE deposit_number = ?`,
+      [
+        targetStatus,
+        operator,
+        nowIso,
+        refundAmountCents,
+        appliedAmountCents,
+        linkedReceiptNo || null,
+        JSON.stringify(resolutionSnapshot),
+        nowIso,
+        depositNumber,
+      ]
+    );
+
+    // Audit log
+    const auditLogId = `log-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+    await conn.query(
+      `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+       VALUES (?, datetime('now', 'localtime'), ?, 'DEPOSIT_RESOLVED', ?)`,
+      [
+        auditLogId,
+        operator,
+        `Deposit ${depositNumber} (₱${(amountCents / 100).toFixed(2)}) marked as ${targetStatus.toUpperCase()} by ${operator}${notes ? `. Notes: ${notes}` : ''}`,
+      ]
+    );
+
+    const updatedRes = await conn.query('SELECT * FROM deposits WHERE deposit_number = ?', [depositNumber]);
+    const updatedDeposit = rowToSecurityDeposit(updatedRes.rows[0]);
+
+    // Build thermal ESC/POS buffer for refund/settlement slip
+    const escposBuffer = buildDepositRefundSlipEscPosBuffer({
+      depositNumber,
+      dateTime: nowIso,
+      roomNumber: deposit.room_id,
+      guestName: snapshotData.guestName || 'Valued Guest',
+      cashierId: operator,
+      originalAmount: amountCents / 100,
+      refundAmount: refundAmountCents / 100,
+      appliedAmount: appliedAmountCents / 100,
+      status: targetStatus,
+      linkedReceiptNo,
+      notes,
+    });
+
+    return {
+      deposit: updatedDeposit,
+      escposBufferBase64: escposBuffer.toString('base64'),
+    };
+  });
+
+  socketManager.broadcast('deposit:resolved', {
+    depositNumber,
+    status: result.deposit.status,
+    resolvedBy: operator,
+    timestamp: new Date().toISOString(),
+  });
+
+  return res.json(result);
+}));
+
+// POST /api/deposits/:depositNumber/reprint — Reprint slip
+router.post('/:depositNumber/reprint', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
+  const { depositNumber } = req.params;
+  const operator = (req as any).operator?.username || 'Frontdesk';
+
+  const depRes = await pool.query('SELECT * FROM deposits WHERE deposit_number = ?', [depositNumber]);
+  if (depRes.rows.length === 0) {
+    return res.status(404).json({ error: `Deposit ${depositNumber} not found` });
+  }
+
+  const deposit = depRes.rows[0];
+  const newReprintCount = Number(deposit.reprint_count || 0) + 1;
+
+  await pool.query(
+    'UPDATE deposits SET reprint_count = ?, updated_at = NOW() WHERE deposit_number = ?',
+    [newReprintCount, depositNumber]
+  );
+
+  let snapshotData: any = {};
+  try {
+    if (deposit.deposit_snapshot) {
+      snapshotData = typeof deposit.deposit_snapshot === 'string' ? JSON.parse(deposit.deposit_snapshot) : deposit.deposit_snapshot;
+    }
+  } catch (e) {
+    snapshotData = {};
+  }
+
+  let escposBuffer: Buffer;
+  if (deposit.status === 'held') {
+    escposBuffer = buildDepositSlipEscPosBuffer({
+      depositNumber,
+      dateTime: deposit.collected_at,
+      roomNumber: deposit.room_id,
+      guestName: snapshotData.guestName || 'Valued Guest',
+      cashierId: deposit.collected_by,
+      amount: Number(deposit.amount_cents || 0) / 100,
+      paymentMethod: snapshotData.paymentMethod || 'CASH',
+      notes: deposit.notes || undefined,
+      reprintCount: newReprintCount,
+    });
+  } else {
+    escposBuffer = buildDepositRefundSlipEscPosBuffer({
+      depositNumber,
+      dateTime: deposit.resolved_at || new Date().toISOString(),
+      roomNumber: deposit.room_id,
+      guestName: snapshotData.guestName || 'Valued Guest',
+      cashierId: deposit.resolved_by || operator,
+      originalAmount: Number(deposit.amount_cents || 0) / 100,
+      refundAmount: Number(deposit.refund_amount_cents || 0) / 100,
+      appliedAmount: Number(deposit.applied_amount_cents || 0) / 100,
+      status: deposit.status,
+      linkedReceiptNo: deposit.linked_receipt_no || undefined,
+      notes: deposit.notes || undefined,
+      reprintCount: newReprintCount,
+    });
+  }
+
+  const auditLogId = `log-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+  await pool.query(
+    `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+     VALUES (?, datetime('now', 'localtime'), ?, 'DEPOSIT_REPRINT', ?)`,
+    [auditLogId, operator, `Reprinted slip for deposit ${depositNumber} (Reprint #${newReprintCount})`]
+  );
+
+  const updatedRes = await pool.query('SELECT * FROM deposits WHERE deposit_number = ?', [depositNumber]);
+  return res.json({
+    deposit: rowToSecurityDeposit(updatedRes.rows[0]),
+    escposBufferBase64: escposBuffer.toString('base64'),
+    reprintCount: newReprintCount,
+  });
 }));
 
 export default router;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Room } from '../../types';
-import { CreditCard, ChevronRight, UserCheck, Loader2, AlertCircle, ShieldAlert, ChevronDown, Printer, Ticket } from 'lucide-react';
+import { Room, Deposit } from '../../types';
+import { CreditCard, ChevronRight, UserCheck, Loader2, AlertCircle, ShieldAlert, ChevronDown, Printer, Ticket, Banknote, ShieldCheck } from 'lucide-react';
 import { formatStayDuration } from '../../utils/pricing';
 import { getDiscountAmountPesos } from '../../utils/discount-rates';
 
@@ -19,6 +19,14 @@ interface CheckoutActionsProps {
   excessHours?: number;
   excessHoursCharge?: number;
   runningTotal: number;
+  activeDeposit?: Deposit | null;
+  depositResolution?: 'apply' | 'refund' | 'forfeit';
+  setDepositResolution?: (val: 'apply' | 'refund' | 'forfeit') => void;
+  depositNotes?: string;
+  setDepositNotes?: (val: string) => void;
+  appliedDepositAmount?: number;
+  excessDepositRefund?: number;
+  netTotalDue?: number;
   paymentMethod: 'CASH' | 'GCASH' | 'MIXED';
   setPaymentMethod: (val: 'CASH' | 'GCASH' | 'MIXED') => void;
   gcashRef: string;
@@ -27,6 +35,8 @@ interface CheckoutActionsProps {
   handleCashAmountChange: (val: number) => void;
   gcashAmount: number;
   handleGcashAmountChange: (val: number) => void;
+  amountTendered?: number;
+  handleAmountTenderedChange?: (val: number) => void;
   handleCheckOut: () => void;
   onClose: () => void;
   discountType: 'NONE' | 'SENIOR' | 'DC';
@@ -63,6 +73,14 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
   excessHours = 0,
   excessHoursCharge = 0,
   runningTotal,
+  activeDeposit,
+  depositResolution = 'apply',
+  setDepositResolution,
+  depositNotes = '',
+  setDepositNotes,
+  appliedDepositAmount,
+  excessDepositRefund = 0,
+  netTotalDue,
   paymentMethod,
   setPaymentMethod,
   gcashRef,
@@ -71,6 +89,8 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
   handleCashAmountChange,
   gcashAmount,
   handleGcashAmountChange,
+  amountTendered = 0,
+  handleAmountTenderedChange,
   handleCheckOut,
   onClose,
   discountType,
@@ -90,6 +110,19 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
   onGatePass,
   showFooterActions = true,
 }) => {
+  // depositResolution state: use props when parent controls it, else manage locally.
+  const [localResolution, setLocalResolution] = React.useState<'apply' | 'refund' | 'forfeit'>(depositResolution ?? 'apply');
+  const [localNotes, setLocalNotes] = React.useState<string>(depositNotes ?? '');
+  const effectiveResolution = setDepositResolution ? (depositResolution ?? 'apply') : localResolution;
+  const effectiveNotes = setDepositNotes ? (depositNotes ?? '') : localNotes;
+  const handleResolutionChange = (val: 'apply' | 'refund' | 'forfeit') => {
+    if (setDepositResolution) setDepositResolution(val);
+    else setLocalResolution(val);
+  };
+  const handleNotesChange = (val: string) => {
+    if (setDepositNotes) setDepositNotes(val);
+    else setLocalNotes(val);
+  };
   // Discount details start collapsed unless a discount is actively applied.
   const [discountOpen, setDiscountOpen] = React.useState(discountType !== 'NONE');
   React.useEffect(() => {
@@ -123,10 +156,17 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
     );
   }
 
+  // Effective deposit applied to bill
+  const appliedDeposit = (effectiveResolution === 'apply' && activeDeposit)
+    ? (appliedDepositAmount ?? Math.min(runningTotal, activeDeposit.amount))
+    : 0;
+  const effectiveTotalDue = netTotalDue !== undefined ? netTotalDue : Math.max(0, runningTotal - appliedDeposit);
+
   // Priority 3d: GCash 13-digit format validation check
-  const isGcashRequired = paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && gcashAmount > 0);
+  const isGcashRequired = effectiveTotalDue > 0 && (paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && gcashAmount > 0));
   const isGcashFormatValid = !gcashRef.trim() || /^\d{13}$/.test(gcashRef.trim());
   const isGcashMissing = isGcashRequired && !gcashRef.trim();
+  const isGcashFormatInvalid = isGcashRequired && Boolean(gcashRef.trim()) && !isGcashFormatValid;
 
   // Compute table discount amounts for this room tier and duration
   const seniorAmount = getDiscountAmountPesos('SENIOR', room.tier, rateSelected);
@@ -144,13 +184,124 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
   const isDiscountUnmapped = isDiscountActive && Boolean(discountUnconfiguredMessage);
 
   // Mixed split balance check
-  const isMixedImbalanced = paymentMethod === 'MIXED' && Math.abs((cashAmount + gcashAmount) - runningTotal) >= 0.01;
+  const isMixedImbalanced = paymentMethod === 'MIXED' && effectiveTotalDue > 0 && Math.abs((cashAmount + gcashAmount) - effectiveTotalDue) >= 0.01;
+
+  // Tendered amount validation
+  const cashDue = paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue;
+  const effectiveTendered = paymentMethod === 'CASH'
+    ? (amountTendered || 0)
+    : paymentMethod === 'MIXED'
+    ? (amountTendered || 0)
+    : effectiveTotalDue;
+
+  const changeDue = (paymentMethod === 'CASH' || paymentMethod === 'MIXED')
+    ? Math.max(0, effectiveTendered - cashDue)
+    : 0;
+
+  const isTenderedInsufficient = effectiveTotalDue > 0 && (
+    paymentMethod === 'CASH'
+      ? ((amountTendered || 0) < effectiveTotalDue || (amountTendered || 0) <= 0)
+      : paymentMethod === 'MIXED'
+      ? (cashAmount > 0 && ((amountTendered || 0) < cashAmount || (amountTendered || 0) <= 0))
+      : false
+  );
+
+  const isForfeitMissingNote = effectiveResolution === 'forfeit' && Boolean(activeDeposit) && !effectiveNotes.trim();
 
   // Checkout is 100% selectable — no typing of code or ID required to check out
-  const isCheckoutDisabled = isSubmitting || isDiscountUnmapped || isGcashMissing || isMixedImbalanced;
+  // Discount-unmapped blocks checkout (mirrors server 400); GCash requires exact 13 digits.
+  const isCheckoutDisabled = isSubmitting || isDiscountUnmapped || isGcashMissing || isGcashFormatInvalid || isMixedImbalanced || isTenderedInsufficient || isForfeitMissingNote;
 
   return (
     <>
+      {/* Active Held Deposit Resolution Card */}
+      {activeDeposit && activeDeposit.status === 'held' && (
+        <div className="space-y-2.5 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                <ShieldCheck size={16} />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-900 font-extrabold block">
+                  Active Held Deposit
+                </span>
+                <span className="text-xs font-mono font-bold text-indigo-950">
+                  Deposit #{activeDeposit.depositNumber}
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-[9px] font-mono text-indigo-700 uppercase block">Held Amount</span>
+              <span className="text-sm font-mono font-black text-indigo-900">
+                ₱{activeDeposit.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Resolution Options */}
+          <div className="space-y-1.5 pt-2 border-t border-indigo-200/60">
+            <label className="text-[10px] font-mono uppercase font-bold text-indigo-900 block">
+              Checkout Resolution Action
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleResolutionChange('apply')}
+                className={`py-2 px-1.5 rounded-xl border text-center font-mono text-xs font-bold transition cursor-pointer ${
+                  effectiveResolution === 'apply'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                    : 'bg-white border-indigo-200 text-indigo-900 hover:bg-indigo-50'
+                }`}
+              >
+                <div className="text-[10px] leading-tight">Apply to Bill</div>
+                <div className="text-[8px] font-normal opacity-80 mt-0.5">Deduct ₱{Math.min(runningTotal, activeDeposit.amount).toFixed(0)}</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleResolutionChange('refund')}
+                className={`py-2 px-1.5 rounded-xl border text-center font-mono text-xs font-bold transition cursor-pointer ${
+                  effectiveResolution === 'refund'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : 'bg-white border-emerald-200 text-emerald-900 hover:bg-emerald-50'
+                }`}
+              >
+                <div className="text-[10px] leading-tight">Refund to Guest</div>
+                <div className="text-[8px] font-normal opacity-80 mt-0.5">Return ₱{activeDeposit.amount.toFixed(0)}</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleResolutionChange('forfeit')}
+                className={`py-2 px-1.5 rounded-xl border text-center font-mono text-xs font-bold transition cursor-pointer ${
+                  effectiveResolution === 'forfeit'
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                    : 'bg-white border-rose-200 text-rose-900 hover:bg-rose-50'
+                }`}
+              >
+                <div className="text-[10px] leading-tight">Forfeit</div>
+                <div className="text-[8px] font-normal opacity-80 mt-0.5">Keep Deposit</div>
+              </button>
+            </div>
+
+            {effectiveResolution === 'forfeit' && (
+              <div className="pt-1.5 space-y-1">
+                <label className="text-[9px] font-mono uppercase text-rose-800 font-bold block">
+                  Forfeit Reason / Audit Notes <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={effectiveNotes}
+                  onChange={(e) => handleNotesChange(e.target.value)}
+                  placeholder="e.g. Room key lost / stained bedsheet / unpaid minibar"
+                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-rose-300 rounded-lg focus:outline-none focus:border-rose-500"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3 pt-3 border-t border-secondary/30">
         <h3 className="font-display font-bold text-sm text-primary uppercase">
           Payment & Check-Out Method
@@ -177,7 +328,7 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
         </div>
 
         {/* Split amounts when MIXED is selected */}
-        {paymentMethod === 'MIXED' && (
+        {paymentMethod === 'MIXED' && effectiveTotalDue > 0 && (
           <div className="space-y-2 p-3 bg-cream border border-secondary rounded-xl">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -185,7 +336,7 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
                 <input
                   type="number"
                   min={0}
-                  max={runningTotal}
+                  max={effectiveTotalDue}
                   step="any"
                   value={cashAmount || ''}
                   onChange={(e) => {
@@ -200,7 +351,7 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
                 <input
                   type="number"
                   min={0}
-                  max={runningTotal}
+                  max={effectiveTotalDue}
                   step="any"
                   value={gcashAmount || ''}
                   onChange={(e) => {
@@ -214,14 +365,14 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
             {isMixedImbalanced && (
               <p className="text-[10px] text-rose-600 font-mono flex items-center gap-1">
                 <AlertCircle size={11} />
-                Split sum (₱{(cashAmount + gcashAmount).toFixed(2)}) must equal ₱{runningTotal.toFixed(2)}
+                Split sum (₱{(cashAmount + gcashAmount).toFixed(2)}) must equal ₱{effectiveTotalDue.toFixed(2)}
               </p>
             )}
           </div>
         )}
 
         {/* GCash Reference Input */}
-        {(paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && gcashAmount > 0)) && (
+        {effectiveTotalDue > 0 && (paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && gcashAmount > 0)) && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -260,9 +411,138 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
             )}
           </motion.div>
         )}
+
+        {/* Cash / Tendered & Live Change Section */}
+        {effectiveTotalDue > 0 && (paymentMethod === 'CASH' || (paymentMethod === 'MIXED' && cashAmount > 0)) && (
+          <div className="space-y-3 p-3.5 bg-cream/60 border border-secondary rounded-2xl">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-mono font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                <Banknote size={15} />
+                <span>Amount Tendered (Cash) <span className="text-rose-500">*</span></span>
+              </label>
+              <span className="text-[10px] font-mono text-charcoal/50">
+                Due: ₱{(paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue).toFixed(2)}
+              </span>
+            </div>
+
+            {/* Numeric Input */}
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-mono font-bold text-charcoal/50">
+                ₱
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                placeholder="Enter cash received"
+                value={amountTendered || ''}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  if (handleAmountTenderedChange) handleAmountTenderedChange(val);
+                }}
+                className={`w-full pl-8 pr-4 py-2.5 text-sm font-mono font-bold bg-white border rounded-xl focus:outline-none focus:ring-2 ${
+                  isTenderedInsufficient
+                    ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-200'
+                    : 'border-secondary/60 focus:border-primary focus:ring-primary/20'
+                }`}
+              />
+            </div>
+
+            {/* Quick Tender Buttons */}
+            <div className="space-y-1">
+              <div className="text-[10px] font-mono text-charcoal/50 uppercase font-semibold">
+                Quick Tender Buttons
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const exact = paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue;
+                    if (handleAmountTenderedChange) handleAmountTenderedChange(exact);
+                  }}
+                  className="px-2.5 py-1.5 text-xs font-mono font-bold bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary rounded-xl transition cursor-pointer active:scale-95"
+                >
+                  Exact (₱{(paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue).toFixed(2)})
+                </button>
+                {[100, 200, 500, 1000].map((denom) => (
+                  <button
+                    key={denom}
+                    type="button"
+                    onClick={() => {
+                      if (handleAmountTenderedChange) handleAmountTenderedChange(denom);
+                    }}
+                    className="px-2.5 py-1.5 text-xs font-mono font-bold bg-white hover:bg-cream border border-secondary/60 text-charcoal rounded-xl transition cursor-pointer active:scale-95 shadow-2xs"
+                  >
+                    ₱{denom.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Calculation Display */}
+            <div className="p-3 bg-white border border-secondary/50 rounded-xl space-y-2 font-mono text-xs">
+              <div className="flex justify-between items-center text-charcoal/70">
+                <span>Total Cash Due:</span>
+                <span className="font-bold">₱{(paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-charcoal/70">
+                <span>Cash Tendered:</span>
+                <span className="font-bold text-primary">₱{(amountTendered || 0).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-secondary/40">
+                <span className="font-bold uppercase tracking-wider text-xs">CHANGE:</span>
+                <span className={`text-xl font-black ${
+                  changeDue > 0 ? 'text-emerald-700' : 'text-charcoal'
+                }`}>
+                  ₱{changeDue.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {isTenderedInsufficient && (
+              <p className="text-[11px] text-rose-600 font-mono flex items-center gap-1.5 bg-rose-50 border border-rose-200 p-2 rounded-xl">
+                <AlertCircle size={13} className="shrink-0" />
+                <span>
+                  Tendered cash (₱{(amountTendered || 0).toFixed(2)}) is less than total due (₱{cashDue.toFixed(2)}). Need ₱{(cashDue - (amountTendered || 0)).toFixed(2)} more.
+                </span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Full deposit coverage note */}
+        {effectiveTotalDue === 0 && activeDeposit && effectiveResolution === 'apply' && (
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1 font-mono text-xs text-emerald-950">
+            <div className="flex items-center gap-1.5 font-bold">
+              <ShieldCheck size={14} className="text-emerald-600" />
+              <span>Full Balance Covered by Security Deposit</span>
+            </div>
+            <p className="text-[11px] font-sans text-emerald-800">
+              No additional cash or electronic payment required. The guest's security deposit covers the total account.
+            </p>
+          </div>
+        )}
+
+        {/* GCash non-cash live display */}
+        {paymentMethod === 'GCASH' && effectiveTotalDue > 0 && (
+          <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1 font-mono text-xs text-blue-900">
+            <div className="flex justify-between">
+              <span>Total Due:</span>
+              <span className="font-bold">₱{effectiveTotalDue.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Amount Tendered:</span>
+              <span className="font-bold">₱{effectiveTotalDue.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-blue-200/60 font-bold">
+              <span>CHANGE:</span>
+              <span className="text-sm">₱0.00</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Guest Discount (collapsed by default; rate is set once via StayRatePicker above) */}
+      {/* Guest Discount */}
       <div className="space-y-2.5 pt-3 border-t border-secondary/30">
         <button
           type="button"
@@ -373,7 +653,7 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
           <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-charcoal/50 pointer-events-none" />
         </div>
 
-        {/* 3. Dedicated 1-Tap Buttons for Cashier Quick Navigation */}
+        {/* Dedicated 1-Tap Buttons for Cashier Quick Navigation */}
         <div className="space-y-2">
           {/* No Discount Button */}
           <button
@@ -402,7 +682,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
               <span>Senior / PWD Rate Buttons</span>
             </span>
             <div className="grid grid-cols-2 gap-2">
-              {/* Senior / PWD 12HR */}
               <button
                 type="button"
                 disabled={senior12Amount === null}
@@ -441,7 +720,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
                 </span>
               </button>
 
-              {/* Senior / PWD 24HR */}
               <button
                 type="button"
                 disabled={senior24Amount === null}
@@ -489,7 +767,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
               <span>Discount Card (DC) Rate Buttons</span>
             </span>
             <div className="grid grid-cols-3 gap-1.5">
-              {/* DC 3HR */}
               <button
                 type="button"
                 disabled={dc3Amount === null}
@@ -526,7 +803,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
                 </span>
               </button>
 
-              {/* DC 12HR */}
               <button
                 type="button"
                 disabled={dc12Amount === null}
@@ -563,7 +839,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
                 </span>
               </button>
 
-              {/* DC 24HR */}
               <button
                 type="button"
                 disabled={dc24Amount === null}
@@ -603,7 +878,7 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
           </div>
         </div>
 
-        {/* Unconfigured Gap Alert (Decision Point 2) */}
+        {/* Unconfigured Gap Alert */}
         {discountType !== 'NONE' && discountUnconfiguredMessage && (
           <motion.div
             initial={{ opacity: 0, y: -6 }}
@@ -637,7 +912,6 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
               </span>
             </div>
 
-            {/* Optional reference input (never blocks checkout) */}
             <div className="space-y-1 pt-1 border-t border-emerald-200/60">
               <div className="flex items-center justify-between">
                 <label htmlFor="discount-id-ref" className="text-[10px] font-mono uppercase tracking-wider text-emerald-900 font-medium">
@@ -708,10 +982,22 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
             <span>+₱{excessHoursCharge.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         )}
+        {appliedDeposit > 0 && effectiveResolution === 'apply' && (
+          <div className="flex justify-between text-indigo-700 font-bold bg-indigo-50/80 p-2 rounded-lg border border-indigo-200">
+            <span>Security Deposit Applied ({activeDeposit?.depositNumber})</span>
+            <span>-₱{appliedDeposit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+        )}
         <div className="flex justify-between border-t border-primary/20 pt-2 font-display font-extrabold text-lg tracking-tight text-primary">
-          <span>Account Total</span>
-          <span>₱{runningTotal.toLocaleString()}</span>
+          <span>{appliedDeposit > 0 ? 'Net Total Due' : 'Account Total'}</span>
+          <span>₱{effectiveTotalDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
+        {excessDepositRefund > 0 && effectiveResolution === 'apply' && (
+          <div className="flex justify-between text-emerald-800 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-300 text-xs">
+            <span>Excess Deposit Refund to Guest:</span>
+            <span>₱{excessDepositRefund.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+        )}
       </div>
 
       {showFooterActions && (
@@ -787,4 +1073,3 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
     </>
   );
 };
-

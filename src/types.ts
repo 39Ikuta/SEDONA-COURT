@@ -4,7 +4,7 @@
 
 export interface Room {
   number: string; // e.g. '101'
-  state: 'available' | 'occupied' | 'cleaning' | 'overdue' | 'maintenance';
+  state: 'available' | 'occupied' | 'overdue' | 'maintenance';
   time: string; // text like '2h 14m', 'READY', '0h 15m'
   label: string; // smith, J., Housekeep, Vacant, Available
   tier: 'Standard' | 'Deluxe' | 'Suite';
@@ -19,6 +19,11 @@ export interface Room {
   towelSets: number;
   checkInTime?: string;
   checkOutTime?: string;
+  checkInAt?: string;
+  expectedCheckoutAt?: string;
+  alarmState?: 'NORMAL' | 'WARNING' | 'DUE' | 'OVERDUE';
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
   isOverdue?: boolean;
   chargedFood?: Array<{ item: POSItem; quantity: number }>;
   forceCheckoutPending?: boolean;
@@ -26,6 +31,33 @@ export interface Room {
   isStaffHouse?: boolean;
   discountType?: 'NONE' | 'SENIOR' | 'DC';
   discountIdRef?: string;
+  billingMode?: 'standard' | 'open_time';
+  openTimeStartedAt?: string;
+  snoozedUntil?: string;
+  repeatCount?: number;
+  overtimeWaived?: boolean;
+}
+
+export type AlarmState = 'NORMAL' | 'WARNING' | 'DUE' | 'OVERDUE';
+
+export interface AlarmStateChangedEvent {
+  roomNumber: string;
+  previousState: AlarmState;
+  newState: AlarmState;
+  expectedCheckoutAt: string;
+  acknowledgedAt?: string | null;
+  acknowledgedBy?: string | null;
+  timestamp: string;
+}
+
+export interface AlarmSettings {
+  alarm_pre_minutes: number;
+  alarm_post_minutes: number;
+  snooze_minutes?: number;
+  overdue_repeat_minutes?: number;
+  overdue_max_repeats?: number;
+  extra_hour_rate?: number;
+  open_time_reminder_hours?: number;
 }
 
 export type ForceCheckoutReason = 
@@ -157,6 +189,22 @@ export interface Receipt {
   rateSelected?: '3h' | '6h' | '12h' | '24h' | 'promo' | string;
   stayDuration?: string;
   depositBalance?: number;
+  amountTendered?: number;
+  changeAmount?: number;
+  amountTenderedCents?: number;
+  changeCents?: number;
+  consumedMinutes?: number;
+  timeConsumed?: string;
+  status?: 'valid' | 'void';
+  voidReason?: string;
+  voidedAt?: string;
+  voidedBy?: string;
+  reprintCount?: number;
+  lastReprintedAt?: string;
+  lastReprintedBy?: string;
+  idempotencyKey?: string;
+  sequenceName?: string;
+  depositResolution?: { action: 'apply' | 'refund' | 'forfeit'; notes?: string };
 }
 
 export interface HandoffTask {
@@ -277,6 +325,32 @@ export interface TransferRoomResponse {
   sourceRoom: Room;
   targetRoom: Room;
   message: string;
+}
+
+export interface Deposit {
+  id: string;
+  bookingId?: string | null;
+  roomId?: string;
+  roomNumber?: string;
+  amountCents: number;
+  amount: number;
+  status: 'held' | 'refunded' | 'applied' | 'forfeited';
+  collectedBy: string;
+  collectedAt: string;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  depositNumber: string;
+  notes?: string | null;
+  refundAmountCents?: number;
+  refundAmount?: number;
+  appliedAmountCents?: number;
+  appliedAmount?: number;
+  linkedReceiptNo?: string | null;
+  depositSnapshot?: any;
+  resolutionSnapshot?: any;
+  reprintCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 

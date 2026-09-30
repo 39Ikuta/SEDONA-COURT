@@ -10,15 +10,14 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool, withTransaction } from '../db/pool';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireCashierStaff } from '../middleware/auth';
 import { socketManager } from '../websocket/socket-manager';
 import { formatStayDuration } from '../utils/pricing';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
 
-function rowToForceCheckoutRequest(row: any) {
-  let billedBreakdown = [];
+function rowToForceCheckoutRequest(row: any) {  let billedBreakdown = [];
   if (row.billed_breakdown) {
     try {
       billedBreakdown = typeof row.billed_breakdown === 'string'
@@ -52,8 +51,19 @@ function rowToForceCheckoutRequest(row: any) {
   };
 }
 
+// Allocate a unique FCE-###### receipt number with retry on PK collision.
+async function allocateFceReceiptNo(conn: any): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = `FCE-${Math.floor(100000 + Math.random() * 900000)}`;
+    const existing = await conn.query('SELECT 1 FROM receipts WHERE receipt_no = ? LIMIT 1', [candidate]);
+    if (existing.rows.length === 0) return candidate;
+  }
+  // Fallback: timestamp-suffixed (still fits TEXT PK)
+  return `FCE-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
+}
+
 // GET /api/force-checkout
-router.get('/', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { status } = req.query;
     let query = 'SELECT * FROM force_checkout_requests';
@@ -75,7 +85,7 @@ router.get('/', requireAuth, asyncHandler(async (req: Request, res: Response) =>
 }));
 
 // POST /api/force-checkout (Cashier submits escalation request)
-router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
   const { roomNumber, reason, cashierNotes, uncollectedAmount, billedBreakdown } = req.body;
   const operator = (req as any).operator;
 
@@ -205,7 +215,7 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
       const roomRow = roomRowResult.rows[0] || {};
 
       // 3. Create Audited Incident Loss Slip (with ₱0 cash collected to avoid skewing physical drawer)
-      const receiptNo = `FCE-${Math.floor(100000 + Math.random() * 900000)}`;
+      const receiptNo = await allocateFceReceiptNo(conn);
       const stayDurationLabel = formatStayDuration(fcr.rate_selected || roomRow.rate_selected || '24h');
       
       let breakdownItems: any[] = [];
@@ -247,20 +257,37 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
         ]
       );
 
-      // 4. Reset target Room to 'cleaning' state
+      // 4. Reset target Room to 'available' state directly (Cleaning mode removed)
       await conn.query(
         `UPDATE rooms
-         SET state = 'cleaning',
-             label = 'Housekeep',
-             guest_name = '',
-             guest_id = '',
-             num_guests = 0,
-             extra_beds = 0,
-             towel_sets = 0,
-             check_in_time = NULL,
-             check_out_time = NULL,
-             charged_food = '[]',
-             is_overdue = 0
+         SET state = 'available',
+              label = 'Available',
+              guest_name = '',
+              guest_id = '',
+              num_guests = 0,
+              extra_beds = 0,
+              towel_sets = 0,
+              check_in_time = NULL,
+              check_out_time = NULL,
+              check_in_at = NULL,
+              expected_checkout_at = NULL,
+              alarm_state = 'NORMAL',
+              acknowledged_at = NULL,
+              acknowledged_by = NULL,
+              charged_food = '[]',
+              is_overdue = 0,
+              billing_mode = 'standard',
+              open_time_started_at = NULL,
+              last_reminder_at = NULL,
+              snoozed_until = NULL,
+              repeat_count = 0,
+              overtime_waived = 0,
+              discount_type = NULL,
+              discount_id_ref = NULL,
+              rate_selected = NULL,
+              custom_hours = NULL,
+              allocated_receipt_no = NULL,
+              updated_at = NOW()
          WHERE number = ?`,
         [roomNumber]
       );
@@ -343,7 +370,8 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
     });
     socketManager.broadcast('room:updated', {
       number: roomNumber,
-      state: 'cleaning',
+      state: 'available',
+      label: 'Available',
     });
 
     res.json(updatedItem);
@@ -474,7 +502,7 @@ router.post('/direct-override', requireAuth, asyncHandler(async (req: Request, r
       );
 
       // 2. Create Audited Incident Loss Slip
-      const receiptNo = `FCE-${Math.floor(100000 + Math.random() * 900000)}`;
+      const receiptNo = await allocateFceReceiptNo(conn);
       const stayDurationLabel = formatStayDuration(room.rate_selected || '24h');
 
       await conn.query(
@@ -506,20 +534,37 @@ router.post('/direct-override', requireAuth, asyncHandler(async (req: Request, r
         ]
       );
 
-      // 3. Reset Room to 'cleaning'
+      // 3. Reset Room to 'available' directly (Cleaning mode removed)
       await conn.query(
         `UPDATE rooms
-         SET state = 'cleaning',
-             label = 'Housekeep',
-             guest_name = '',
-             guest_id = '',
-             num_guests = 0,
-             extra_beds = 0,
-             towel_sets = 0,
-             check_in_time = NULL,
-             check_out_time = NULL,
-             charged_food = '[]',
-             is_overdue = 0
+         SET state = 'available',
+              label = 'Available',
+              guest_name = '',
+              guest_id = '',
+              num_guests = 0,
+              extra_beds = 0,
+              towel_sets = 0,
+              check_in_time = NULL,
+              check_out_time = NULL,
+              check_in_at = NULL,
+              expected_checkout_at = NULL,
+              alarm_state = 'NORMAL',
+              acknowledged_at = NULL,
+              acknowledged_by = NULL,
+              charged_food = '[]',
+              is_overdue = 0,
+              billing_mode = 'standard',
+              open_time_started_at = NULL,
+              last_reminder_at = NULL,
+              snoozed_until = NULL,
+              repeat_count = 0,
+              overtime_waived = 0,
+              discount_type = NULL,
+              discount_id_ref = NULL,
+              rate_selected = NULL,
+              custom_hours = NULL,
+              allocated_receipt_no = NULL,
+              updated_at = NOW()
          WHERE number = ?`,
         [room.number]
       );
@@ -539,7 +584,7 @@ router.post('/direct-override', requireAuth, asyncHandler(async (req: Request, r
 
     socketManager.broadcast('room:updated', {
       number: room.number,
-      state: 'cleaning',
+      state: 'available',
     });
 
     res.json({ success: true, message: `Room ${room.number} successfully force checked out.` });
