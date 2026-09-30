@@ -24,7 +24,7 @@ import { useToast } from './ui/Toast';
 import { kitchenOrderService } from '../api/kitchen';
 import { getCurrentInventory, InventoryItem } from '../api/inventory';
 import { getGuestDepositBalance, getActiveRoomDeposit } from '../api/deposits';
-import { prePrintReceipt } from '../api/receipts';
+import { prePrintReceipt as apiPrePrintReceipt } from '../api/receipts';
 import { useModalEscape } from '../hooks/useModalEscape';
 
 interface RoomDetailSidebarProps {
@@ -985,7 +985,7 @@ export const RoomDetailSidebar: React.FC<RoomDetailSidebarProps> = ({
         });
         isDirty.current = false;
       }
-      const serverPre = await prePrintReceipt({
+      const serverPre = await apiPrePrintReceipt({
         roomNumber: room.number,
         cashierId: activeCashier,
         paymentMethod: paymentMethod || 'CASH',
