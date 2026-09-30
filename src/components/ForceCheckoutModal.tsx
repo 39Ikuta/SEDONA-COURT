@@ -292,7 +292,7 @@ export const ForceCheckoutModal: React.FC<ForceCheckoutModalProps> = ({
               <span>Auditing & Drawer Protection Notice:</span>
             </p>
             <p className="mt-0.5 text-charcoal/70">
-              Force Check-Out frees Room {room.number} to cleaning status and records ₱0 cash collected to prevent drawer cash discrepancies.
+              Force Check-Out frees Room {room.number} to available status and records ₱0 cash collected to prevent drawer cash discrepancies.
             </p>
           </div>
 

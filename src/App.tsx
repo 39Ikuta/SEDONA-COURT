@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Room, Receipt, ScreenState, HandoffTask, ScheduledBooking, BillableService, AuditLogEntry, NotificationLogItem } from './types';
+import { Room, Receipt, ScreenState, HandoffTask, ScheduledBooking, BillableService, AuditLogEntry, NotificationLogItem, AlarmStateChangedEvent } from './types';
 import { playChime, stopAlarm } from './utils/audio';
 import { INITIAL_ROOMS, USER_ACCOUNTS, DEFAULT_BILLABLE_SERVICES } from './data';
 import { Login } from './components/Login';
@@ -29,7 +29,7 @@ import { KeyRound, RefreshCw, Calendar, Sparkles, BellOff, Clock, Volume2, X, Be
 import { LaunchAnimation } from './components/LaunchAnimation';
 // API client modules
 import { login as apiLogin, logout as apiLogout } from './api/auth';
-import { getRooms, updateRoom as apiUpdateRoom, resetRooms } from './api/rooms';
+import { getRooms, updateRoom as apiUpdateRoom, resetRooms, fetchServerTime, acknowledgeRoomAlarm } from './api/rooms';
 import { getBookings, addBooking as apiAddBooking, deleteBooking as apiDeleteBooking, updateBookingStatus } from './api/bookings';
 import { getReceipts, createReceipt } from './api/receipts';
 import { getServices, addService as apiAddService, updateService as apiUpdateService, deleteService as apiDeleteService } from './api/services';
@@ -178,26 +178,123 @@ export default function App() {
     }
   }, [loggedInUser, role, isCustomerDisplayView, toast]);
 
+  const [serverTimeOffset, setServerTimeOffset] = useState<number>(0);
+  const serverTimeOffsetRef = useRef<number>(0);
+  useEffect(() => {
+    serverTimeOffsetRef.current = serverTimeOffset;
+  }, [serverTimeOffset]);
+
+  const syncServerTime = useCallback(async () => {
+    try {
+      const res = await fetchServerTime();
+      const offset = res.timestamp - Date.now();
+      setServerTimeOffset(offset);
+      serverTimeOffsetRef.current = offset;
+    } catch (err) {
+      console.warn('Failed to sync server time:', err);
+    }
+  }, []);
+
   useEffect(() => {
     hydrate(false);
-  }, [hydrate]);
+    syncServerTime();
+  }, [hydrate, syncServerTime]);
 
   useEffect(() => {
     const handleSync = () => {
       console.log('🔄 Socket event received, syncing data...');
+      syncServerTime();
       hydrate(true);
     };
 
+    const handleAlarmStateChanged = (event: AlarmStateChangedEvent) => {
+      console.log('🚨 room:alarm_state_changed event received:', event);
+      const { roomNumber, newState, expectedCheckoutAt, acknowledgedAt, acknowledgedBy } = event;
+      
+      setRooms((prev) =>
+        prev.map((r) => {
+          if (String(r.number) === String(roomNumber)) {
+            return {
+              ...r,
+              alarmState: newState,
+              expectedCheckoutAt: expectedCheckoutAt || r.expectedCheckoutAt,
+              acknowledgedAt: acknowledgedAt || undefined,
+              acknowledgedBy: acknowledgedBy || undefined,
+            };
+          }
+          return r;
+        })
+      );
+
+      // Play audio alerts and create notifications on state transitions
+      if (newState === 'OVERDUE' && !acknowledgedAt) {
+        playChime('grace');
+        const notif = {
+          id: `${roomNumber}_overdue_${Date.now()}`,
+          roomNumber: String(roomNumber),
+          type: 'grace' as const,
+          message: `🚨 Apartment ${roomNumber} checkout is OVERDUE past grace period!`,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        setActiveAlarms((prev) => [...prev, notif]);
+        setNotificationHistory((prev) => [{ ...notif, actionTaken: 'pending' }, ...prev]);
+      } else if (newState === 'WARNING') {
+        playChime('warning');
+        const notif = {
+          id: `${roomNumber}_warning_${Date.now()}`,
+          roomNumber: String(roomNumber),
+          type: 'warning' as const,
+          message: `⚠️ Apartment ${roomNumber} checkout is in 15 minutes!`,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        setActiveAlarms((prev) => [...prev, notif]);
+        setNotificationHistory((prev) => [{ ...notif, actionTaken: 'pending' }, ...prev]);
+      } else if (newState === 'DUE') {
+        playChime('checkout');
+        const notif = {
+          id: `${roomNumber}_due_${Date.now()}`,
+          roomNumber: String(roomNumber),
+          type: 'checkout' as const,
+          message: `⏰ Apartment ${roomNumber} scheduled checkout reached (grace period active).`,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        setActiveAlarms((prev) => [...prev, notif]);
+        setNotificationHistory((prev) => [{ ...notif, actionTaken: 'pending' }, ...prev]);
+      } else if (newState === 'NORMAL') {
+        stopAlarm();
+        setActiveAlarms((prev) => prev.filter((a) => String(a.roomNumber) !== String(roomNumber)));
+      }
+    };
+
+    const handleAlarmAcknowledged = (data: { roomNumber: string; acknowledgedAt: string; acknowledgedBy: string }) => {
+      console.log('✅ room:alarm_acknowledged event received:', data);
+      stopAlarm();
+      setRooms((prev) =>
+        prev.map((r) =>
+          String(r.number) === String(data.roomNumber)
+            ? { ...r, acknowledgedAt: data.acknowledgedAt, acknowledgedBy: data.acknowledgedBy }
+            : r
+        )
+      );
+      setActiveAlarms((prev) => prev.filter((a) => String(a.roomNumber) !== String(data.roomNumber)));
+    };
+
+    socket.on('connect', handleSync);
     socket.on('room:updated', handleSync);
+    socket.on('room:alarm_state_changed', handleAlarmStateChanged);
+    socket.on('room:alarm_acknowledged', handleAlarmAcknowledged);
     socket.on('force_checkout:requested', handleSync);
     socket.on('deposit:applied', handleSync);
 
     return () => {
+      socket.off('connect', handleSync);
       socket.off('room:updated', handleSync);
+      socket.off('room:alarm_state_changed', handleAlarmStateChanged);
+      socket.off('room:alarm_acknowledged', handleAlarmAcknowledged);
       socket.off('force_checkout:requested', handleSync);
       socket.off('deposit:applied', handleSync);
     };
-  }, [hydrate]);
+  }, [hydrate, syncServerTime]);
 
   // Handle OS sleep/wake, browser tab refocus, and network reconnects
   useEffect(() => {
@@ -405,8 +502,8 @@ export default function App() {
   const lastTickTimeRef = useRef<number>(Date.now());
   useEffect(() => {
     const timer = setInterval(() => {
-      const now = new Date();
-      const nowMs = now.getTime();
+      const nowMs = Date.now() + serverTimeOffsetRef.current;
+      const now = new Date(nowMs);
 
       // If time jumped by more than 10 seconds, the system woke from sleep/standby
       if (nowMs - lastTickTimeRef.current > 10000) {
@@ -416,8 +513,6 @@ export default function App() {
       lastTickTimeRef.current = nowMs;
 
       let hasChanges = false;
-      let newTriggered = { ...triggeredAlarmsRef.current };
-      let triggersUpdated = false;
       const alarmToPlay: Array<'warning' | 'checkout' | 'grace'> = [];
       const notificationsToAdd: Array<{
         id: string;
@@ -435,10 +530,10 @@ export default function App() {
           };
         }
 
-        if ((room.state === 'occupied' || room.state === 'overdue') && room.checkOutTime) {
-          const checkout = new Date(room.checkOutTime);
-          const diffMs = checkout.getTime() - now.getTime();
-          const diffMins = diffMs / 60000;
+        const checkoutTime = room.expectedCheckoutAt || room.checkOutTime;
+        if ((room.state === 'occupied' || room.state === 'overdue') && checkoutTime) {
+          const checkout = new Date(checkoutTime);
+          const diffMs = checkout.getTime() - nowMs;
 
           // Compute correct formatted time string
           let computedTime = '';
@@ -459,58 +554,6 @@ export default function App() {
           let nextState = room.state;
           if (diffMs <= 0 && room.state === 'occupied') {
             nextState = 'overdue';
-          }
-
-          // Check triggers
-          const stayKey = `${room.number}_${room.checkInTime || ''}`;
-          if (!newTriggered[stayKey]) {
-            newTriggered[stayKey] = {};
-          }
-          const triggers = { ...newTriggered[stayKey] };
-
-          // 1. 15 minutes warning before checkout
-          if (diffMins <= 15 && diffMins > 0 && !triggers.warning) {
-            triggers.warning = true;
-            newTriggered[stayKey] = triggers;
-            triggersUpdated = true;
-            alarmToPlay.push('warning');
-            notificationsToAdd.push({
-              id: `${room.number}_warning_${Date.now()}`,
-              roomNumber: room.number,
-              type: 'warning',
-              message: `⚠️ Apartment ${room.number} (${room.guestName}) checkout is in 15 minutes!`,
-              timestamp: now.toLocaleTimeString()
-            });
-          }
-
-          // 2. Exactly checkout time
-          if (diffMins <= 0 && !triggers.checkout) {
-            triggers.checkout = true;
-            newTriggered[stayKey] = triggers;
-            triggersUpdated = true;
-            alarmToPlay.push('checkout');
-            notificationsToAdd.push({
-              id: `${room.number}_checkout_${Date.now()}`,
-              roomNumber: room.number,
-              type: 'checkout',
-              message: `⏰ Apartment ${room.number} (${room.guestName}) checkout time reached!`,
-              timestamp: now.toLocaleTimeString()
-            });
-          }
-
-          // 3. 15 minutes grace period exceeded
-          if (diffMins <= -15 && !triggers.grace) {
-            triggers.grace = true;
-            newTriggered[stayKey] = triggers;
-            triggersUpdated = true;
-            alarmToPlay.push('grace');
-            notificationsToAdd.push({
-              id: `${room.number}_grace_${Date.now()}`,
-              roomNumber: room.number,
-              type: 'grace',
-              message: `🚨 Apartment ${room.number} (${room.guestName}) grace period has expired! (+15 mins overdue)`,
-              timestamp: now.toLocaleTimeString()
-            });
           }
 
           if (room.time !== computedTime || room.state !== nextState) {
@@ -553,10 +596,6 @@ export default function App() {
 
       if (hasChanges) {
         setRooms(updatedRooms);
-      }
-
-      if (triggersUpdated) {
-        setTriggeredAlarms(newTriggered);
       }
 
       if (alarmToPlay.length > 0) {
@@ -685,7 +724,7 @@ export default function App() {
   const handleUpdateRoom = async (updatedRoom: Room) => {
     const prevRooms = roomsRef.current;
     const shouldCloseDrawer =
-      updatedRoom.state === 'cleaning' && selectedRoomNumber === updatedRoom.number;
+      updatedRoom.state === 'available' && selectedRoomNumber === updatedRoom.number;
     setRooms((prev) => prev.map((r) => (r.number === updatedRoom.number ? updatedRoom : r)));
     try {
       await apiUpdateRoom(updatedRoom);
@@ -736,7 +775,7 @@ export default function App() {
     if (!targetRoom) return;
 
     if (targetRoom.state !== 'available') {
-      toast.warning('Room Unavailable', `Apartment ${booking.roomNumber} is currently ${targetRoom.state.toUpperCase()}. Please check-out the current guest or finish cleaning first.`);
+      toast.warning('Room Unavailable', `Apartment ${booking.roomNumber} is currently ${targetRoom.state.toUpperCase()}. Please check-out the current guest first.`);
       return;
     }
 
@@ -787,7 +826,7 @@ export default function App() {
 
   // Handler for checkout receipt creation.
   // POST /receipts is authoritative: the server recomputes totals from the
-  // DB room row and transitions the room to 'cleaning' in the same
+  // DB room row and transitions the room to 'available' in the same
   // transaction. Persist FIRST, then update local state. Throw on failure so
   // RoomDetailSidebar aborts the room update instead of faking a checkout.
   const handleGenerateReceipt = async (receipt: Receipt) => {
@@ -805,7 +844,7 @@ export default function App() {
       return [saved, ...prev];
     });
     setActiveTab('receipt-preview');
-    // Re-sync rooms: server already set this room to 'cleaning'.
+    // Re-sync rooms: server already set this room to 'available'.
     try {
       const freshRooms = await getRooms();
       const pending = new Set(
@@ -859,6 +898,23 @@ export default function App() {
   if (role === 'customer_display' || isCustomerDisplayView) {
     return <CustomerDisplay onLogout={handleConfirmLogout} />;
   }
+
+  const handleAcknowledgeAlarm = async (roomNumber: string) => {
+    try {
+      const res = await acknowledgeRoomAlarm(roomNumber);
+      stopAlarm();
+      setRooms((prev) =>
+        prev.map((r) =>
+          String(r.number) === String(roomNumber)
+            ? { ...r, acknowledgedAt: res.acknowledgedAt, acknowledgedBy: res.acknowledgedBy }
+            : r
+        )
+      );
+      toast.success('Alarm Acknowledged', `Overdue alert for Apartment ${roomNumber} acknowledged.`);
+    } catch (err: any) {
+      toast.error('Acknowledgment Failed', err.message || 'Failed to acknowledge alarm');
+    }
+  };
 
   const handleOpenCustomerDisplay = async () => {
     try {
@@ -1152,6 +1208,7 @@ export default function App() {
                     selectedStatusFilter={selectedStatusFilter}
                     onSelectRoom={(room) => setSelectedRoomNumber(room.number)}
                     onClearFilter={() => setSelectedStatusFilter('all')}
+                    onAcknowledgeAlarm={handleAcknowledgeAlarm}
                   />
                 </div>
               </div>

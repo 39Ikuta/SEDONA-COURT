@@ -32,11 +32,13 @@ import {
   FileCheck,
   RefreshCw,
   Cpu,
-  Ticket
+  Ticket,
+  Hash
 } from 'lucide-react';
 import { formatGatePassDateTime } from '../utils/barcode';
 import { useToast } from './ui/Toast';
 import { getUsers, createUser, deleteUser, resetUserPassword, UserAccountRecord } from '../api/users';
+import { getSequenceInfo, updateSequenceSettings, SequenceInfo } from '../api/receipts';
 
 interface SettingsPanelProps {
   billableServices: BillableService[];
@@ -63,11 +65,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const toast = useToast();
 
   // Sub-tabs in settings panel
-  const [activeSubTab, setActiveSubTab] = useState<'rates' | 'menu' | 'services' | 'audit' | 'accounts' | 'hardware'>('rates');
+  const [activeSubTab, setActiveSubTab] = useState<'rates' | 'menu' | 'services' | 'audit' | 'accounts' | 'hardware' | 'receipt-sequence'>('rates');
 
-  // Ensure cashiers cannot be on audit or accounts sub-tabs
+  // Ensure cashiers cannot be on audit, accounts, or sequence sub-tabs
   useEffect(() => {
-    if ((role === 'cashier' || !isAuthorized) && (activeSubTab === 'audit' || activeSubTab === 'accounts')) {
+    if ((role === 'cashier' || !isAuthorized) && (activeSubTab === 'audit' || activeSubTab === 'accounts' || activeSubTab === 'receipt-sequence')) {
       setActiveSubTab('rates');
     }
   }, [role, isAuthorized, activeSubTab]);
@@ -349,6 +351,72 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   };
 
+  // Receipt sequence counter management state (Admin / Owner)
+  const [seqInfo, setSeqInfo] = useState<SequenceInfo | null>(null);
+  const [loadingSeq, setLoadingSeq] = useState<boolean>(false);
+  const [savingSeq, setSavingSeq] = useState<boolean>(false);
+  const [newSeqStart, setNewSeqStart] = useState<number | ''>('');
+  const [newSeqPrefix, setNewSeqPrefix] = useState<string>('SCTI');
+
+  const fetchSequenceData = async () => {
+    if (!isAuthorized) return;
+    setLoadingSeq(true);
+    try {
+      const data = await getSequenceInfo();
+      setSeqInfo(data);
+      setNewSeqStart(data.lastValue + 1);
+      setNewSeqPrefix(data.prefix || 'SCTI');
+    } catch (err: any) {
+      console.warn('Could not load receipt sequence info:', err);
+    } finally {
+      setLoadingSeq(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab === 'receipt-sequence' && isAuthorized) {
+      fetchSequenceData();
+    }
+  }, [activeSubTab, isAuthorized]);
+
+  const handleUpdateSequenceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAuthorized) return;
+    if (typeof newSeqStart !== 'number' || newSeqStart <= 0) {
+      toast.error('Invalid Counter', 'Starting value must be a positive integer.');
+      return;
+    }
+    if (seqInfo && newSeqStart <= seqInfo.lastValue) {
+      toast.error(
+        'Upward Only',
+        `New starting counter (${newSeqStart}) must be greater than current counter (${seqInfo.lastValue}) to prevent duplicate official receipts.`
+      );
+      return;
+    }
+
+    setSavingSeq(true);
+    try {
+      const res = await updateSequenceSettings(
+        newSeqStart,
+        newSeqPrefix.trim().toUpperCase() || 'SCTI',
+        seqInfo?.sequence || 'default'
+      );
+      if (res.ok) {
+        toast.success(
+          'Sequence Counter Updated',
+          `Running counter advanced. Next receipt will be assigned: ${res.nextReceiptNumber}`
+        );
+        await fetchSequenceData();
+      } else {
+        toast.error('Update Failed', 'Failed to update receipt sequence.');
+      }
+    } catch (err: any) {
+      toast.error('Update Error', err.message);
+    } finally {
+      setSavingSeq(false);
+    }
+  };
+
   // Search/Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [auditSearch, setAuditSearch] = useState('');
@@ -557,6 +625,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             ...(isAuthorized
               ? [{ id: 'accounts', label: 'Staff Accounts', desc: 'Manage user logins & access', icon: Users }]
               : []),
+            ...(isAuthorized
+              ? [{ id: 'receipt-sequence', label: 'Receipt Sequence', desc: 'SCTI running counter', icon: Hash }]
+              : []),
             { id: 'hardware', label: 'Hardware & POS', desc: '80mm Thermal & Cash Drawer', icon: Printer }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -587,7 +658,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         {/* Right column main content panel */}
         <div className="flex-1 bg-white rounded-2xl border border-secondary shadow-sm p-6 space-y-6">
           {/* Action Header bar (for search and add new) */}
-          {activeSubTab !== 'audit' && activeSubTab !== 'accounts' && (
+          {activeSubTab !== 'audit' && activeSubTab !== 'accounts' && activeSubTab !== 'hardware' && activeSubTab !== 'receipt-sequence' && (
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 border-b border-secondary/40 pb-4">
               {/* Search Bar */}
               <div className="relative flex-1 max-w-md">
@@ -1760,6 +1831,154 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   </div>
                 </div>
 
+              </div>
+            </div>
+          )}
+
+          {/* ─── 7. Sequential Receipt Numbering SubTab (Admin / Owner) ─── */}
+          {activeSubTab === 'receipt-sequence' && (
+            <div className="space-y-6">
+              {/* Header & Status */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-secondary/40 pb-4">
+                <div>
+                  <h3 className="font-display font-black text-sm uppercase text-charcoal flex items-center gap-2">
+                    <Hash size={16} className="text-primary" />
+                    <span>Sequential Receipt Counter Settings</span>
+                  </h3>
+                  <p className="text-xs text-charcoal/50 mt-0.5">
+                    Official receipt numbering system. Strictly increasing running numbers allocated on payment finalization.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchSequenceData}
+                  disabled={loadingSeq}
+                  className="px-3 py-1.5 bg-white hover:bg-cream/40 border border-secondary text-charcoal rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={loadingSeq ? 'animate-spin' : ''} />
+                  <span>Refresh Status</span>
+                </button>
+              </div>
+
+              {/* Status Grid Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-cream/20 rounded-2xl border border-secondary p-4 space-y-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-charcoal/50 font-bold block">
+                    Current Sequence Status
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-mono font-bold text-sm text-charcoal">
+                      {seqInfo?.sequence || 'default'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-charcoal/60">
+                    Atomic database sequence with exclusive row locks on checkout.
+                  </p>
+                </div>
+
+                <div className="bg-cream/20 rounded-2xl border border-secondary p-4 space-y-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-charcoal/50 font-bold block">
+                    Last Allocated Receipt
+                  </span>
+                  <div className="font-mono font-black text-lg text-primary">
+                    {seqInfo?.lastReceiptNumber || 'None yet'}
+                  </div>
+                  <p className="text-[11px] text-charcoal/60">
+                    Running counter value: <span className="font-bold text-charcoal">{seqInfo?.lastValue ?? 0}</span>
+                  </p>
+                </div>
+
+                <div className="bg-primary/5 rounded-2xl border border-primary/20 p-4 space-y-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-primary font-bold block">
+                    Next Receipt Number
+                  </span>
+                  <div className="font-mono font-black text-lg text-emerald-700">
+                    {seqInfo?.nextReceiptNumber || 'SCTI-000044'}
+                  </div>
+                  <p className="text-[11px] text-primary/70">
+                    Assigned atomically upon next checkout finalization.
+                  </p>
+                </div>
+              </div>
+
+              {/* Counter Advancement Card */}
+              <div className="bg-white rounded-2xl border border-secondary p-6 space-y-5">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center shrink-0">
+                    <ShieldAlert size={18} />
+                  </div>
+                  <div>
+                    <h4 className="font-display font-bold text-sm text-charcoal">
+                      Align with Cashier Handwritten Running Count
+                    </h4>
+                    <p className="text-xs text-charcoal/60 mt-1 leading-relaxed">
+                      Staff previously hand-wrote running numbers on paper. Use this tool to advance the starting sequence number so the digital counter seamlessly aligns with the paper count (e.g. advance to 44 or higher).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertCircle size={14} className="text-amber-700" />
+                    <span>Upward Adjustments Only Policy (Audit-Logged)</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    To maintain strict accounting compliance and prevent duplicate official receipt numbers, sequence values can only be increased, never lowered. Every modification is permanently recorded in the system audit log with your account name and timestamp.
+                  </p>
+                </div>
+
+                <form onSubmit={handleUpdateSequenceSubmit} className="space-y-4 pt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-wider text-charcoal/70 font-bold block">
+                        Sequence Code Prefix *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newSeqPrefix}
+                        onChange={(e) => setNewSeqPrefix(e.target.value.toUpperCase())}
+                        placeholder="e.g. SCTI"
+                        className="w-full bg-cream/20 text-charcoal border border-secondary text-xs rounded-xl px-3 py-2.5 outline-none focus:border-primary transition font-mono font-bold"
+                      />
+                      <span className="text-[9px] text-charcoal/40 font-mono">Default: SCTI (configurable per terminal / branch)</span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-wider text-charcoal/70 font-bold block">
+                        Next Running Number * (Must be &gt; {seqInfo?.lastValue ?? 0})
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min={(seqInfo?.lastValue ?? 0) + 1}
+                        value={newSeqStart}
+                        onChange={(e) => setNewSeqStart(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                        placeholder="e.g. 44"
+                        className="w-full bg-cream/20 text-charcoal border border-secondary text-xs rounded-xl px-3 py-2.5 outline-none focus:border-primary transition font-mono font-bold"
+                      />
+                      <span className="text-[9px] text-charcoal/40 font-mono">
+                        Preview: {newSeqPrefix || 'SCTI'}-{String(newSeqStart || 0).padStart(6, '0')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-secondary/40 flex items-center justify-between">
+                    <div className="text-[11px] text-charcoal/50 font-mono">
+                      Logged Operator: <strong className="text-charcoal">{loggedInUser}</strong> ({role.toUpperCase()})
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={savingSeq || loadingSeq}
+                      className="px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {savingSeq ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+                      <span>{savingSeq ? 'Updating...' : 'Save Sequence Counter'}</span>
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

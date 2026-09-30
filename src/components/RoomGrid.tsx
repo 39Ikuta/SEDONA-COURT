@@ -3,9 +3,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Room, getTierDisplayName } from '../types';
 import { 
   KeyRound,
-  Users
+  Users,
+  Clock,
+  BellOff,
+  CheckCircle2
 } from 'lucide-react';
-import { getRoomStatusConfig } from '../utils/roomStatus';
+import { getRoomStatusConfig, getRoomStayScheduleText } from '../utils/roomStatus';
 import { RoomGridSkeleton } from './ui/Skeleton';
 
 interface RoomGridProps {
@@ -14,6 +17,7 @@ interface RoomGridProps {
   onSelectRoom: (room: Room) => void;
   loading?: boolean;
   onClearFilter?: () => void;
+  onAcknowledgeAlarm?: (roomNumber: string) => void;
 }
 
 export const RoomGrid: React.FC<RoomGridProps> = ({
@@ -22,6 +26,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
   onSelectRoom,
   loading = false,
   onClearFilter,
+  onAcknowledgeAlarm,
 }) => {
   // Apply filters
   const filteredRooms = useMemo(() => {
@@ -122,6 +127,9 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
               const isRoom12 = room.isStaffHouse || room.roomType === 'Staff House' || String(room.number) === '12';
               const isOccupied = room.state === 'occupied' || room.state === 'overdue';
               const rateLabel = formatRateLabel(room);
+              const scheduleText = getRoomStayScheduleText(room);
+              const isOverdue = room.alarmState === 'OVERDUE' || config.urgencyLevel === 'overdue';
+              const isAcked = !!room.acknowledgedAt;
 
               return (
                 <motion.div
@@ -142,7 +150,7 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                       onSelectRoom(room);
                     }
                   }}
-                  className={`border-2 ${config.border} ${config.bg} rounded-2xl p-3.5 cursor-pointer transition-all duration-200 flex flex-col justify-between min-h-[172px] h-auto shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] relative group select-none ${
+                  className={`border-2 ${config.border} ${config.bg} rounded-2xl p-3.5 cursor-pointer transition-all duration-200 flex flex-col justify-between min-h-[178px] h-auto shadow-xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] relative group select-none ${
                     isRoom12 ? 'ring-2 ring-indigo-300 ring-offset-1' : ''
                   }`}
                 >
@@ -214,9 +222,20 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                     <p className="text-[10px] font-mono font-semibold text-charcoal/50 uppercase tracking-widest truncate">
                       {isRoom12 ? 'Free Housing • Staff Tab' : room.roomType}
                     </p>
+
+                    {/* Task 1: Check-in & Scheduled Checkout Times (Asia/Manila 12h format) */}
+                    {isOccupied && !isRoom12 && scheduleText && (
+                      <div 
+                        className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-charcoal/85 bg-slate-100/80 px-2 py-0.5 rounded-md mt-1.5 border border-slate-200/80 truncate"
+                        title={`Schedule: ${scheduleText}`}
+                      >
+                        <Clock size={11} className="shrink-0 text-charcoal/60" />
+                        <span className="truncate">{scheduleText}</span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Bottom: State Indicator & Timer */}
+                  {/* Bottom: State Indicator & Timer & Quick ACK */}
                   <div className="flex items-center justify-between border-t border-secondary/30 pt-2 gap-1.5 min-w-0">
                     <span className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider uppercase min-w-0 shrink">
                       <StatusIcon size={14} className={`${config.text} shrink-0`} />
@@ -225,9 +244,37 @@ export const RoomGrid: React.FC<RoomGridProps> = ({
                       </span>
                     </span>
 
-                    <span className={`font-mono text-[10px] px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap font-extrabold ${config.timeClass}`}>
-                      {isRoom12 ? 'QUARTERS' : room.time}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Overdue Acknowledgment status / button */}
+                      {isOverdue && !isRoom12 && (
+                        isAcked ? (
+                          <span 
+                            title={`Acknowledged by ${room.acknowledgedBy || 'staff'}`}
+                            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-200 text-slate-700 border border-slate-300"
+                          >
+                            <CheckCircle2 size={10} className="text-slate-600" />
+                            <span>ACK'D</span>
+                          </span>
+                        ) : onAcknowledgeAlarm ? (
+                          <button
+                            type="button"
+                            title="Acknowledge Overdue Alarm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onAcknowledgeAlarm(room.number);
+                            }}
+                            className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-mono font-bold rounded shadow-xs transition active:scale-95 cursor-pointer"
+                          >
+                            <BellOff size={10} />
+                            <span>ACK</span>
+                          </button>
+                        ) : null
+                      )}
+
+                      <span className={`font-mono text-[10px] px-2 py-0.5 rounded-full border shrink-0 whitespace-nowrap font-extrabold ${config.timeClass}`}>
+                        {isRoom12 ? 'QUARTERS' : room.time}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Corner indicator circle */}

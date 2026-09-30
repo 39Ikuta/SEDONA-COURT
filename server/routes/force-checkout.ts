@@ -95,7 +95,7 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
 
   try {
     // Check room exists and is active
-    const roomResult = await pool.query('SELECT * FROM rooms WHERE number = ?', [roomNumber]);
+    const roomResult = await pool.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [roomNumber]);
     if (roomResult.rows.length === 0) {
       return res.status(404).json({ error: `Room ${roomNumber} not found.` });
     }
@@ -211,7 +211,7 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
       );
 
       // 2. Fetch room details
-      const roomRowResult = await conn.query('SELECT * FROM rooms WHERE number = ?', [roomNumber]);
+      const roomRowResult = await conn.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [roomNumber]);
       const roomRow = roomRowResult.rows[0] || {};
 
       // 3. Create Audited Incident Loss Slip (with ₱0 cash collected to avoid skewing physical drawer)
@@ -300,7 +300,7 @@ router.post('/:id/approve', requireAuth, asyncHandler(async (req: Request, res: 
         const depositGuestId = fcr.guest_id || roomRow.guest_id || fcr.guest_name || roomRow.guest_name || String(roomNumber);
         const depositGuestName = fcr.guest_name || roomRow.guest_name || 'Guest';
         const uncollectedPesos = Number(fcr.uncollected_amount || 0);
-        const amountCentavos = Math.max(1, Math.round(uncollectedPesos * 100));
+        const amountCentavos = Math.max(0, Math.round(uncollectedPesos * 100));
 
         await conn.query(
           `INSERT INTO deposit_transactions (
@@ -462,7 +462,7 @@ router.post('/direct-override', requireAuth, asyncHandler(async (req: Request, r
   }
 
   try {
-    const roomResult = await pool.query('SELECT * FROM rooms WHERE number = ?', [roomNumber]);
+    const roomResult = await pool.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [roomNumber]);
     if (roomResult.rows.length === 0) {
       return res.status(404).json({ error: `Room ${roomNumber} not found.` });
     }
@@ -595,3 +595,5 @@ router.post('/direct-override', requireAuth, asyncHandler(async (req: Request, r
 }));
 
 export default router;
+
+

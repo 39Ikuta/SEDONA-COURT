@@ -70,10 +70,10 @@ export const calculateExpectedCheckout = (
   if (rateType === 'promo') {
     const checkout = new Date(checkInDate);
     if (checkInDate.getHours() < 6) {
-      checkout.setHours(6, 0, 0, 0);
+      checkout.setUTCHours(22, 0, 0, 0); // 6 AM Manila is 22:00 UTC previous day
     } else {
       checkout.setDate(checkout.getDate() + 1);
-      checkout.setHours(6, 0, 0, 0);
+      checkout.setUTCHours(22, 0, 0, 0); // 6 AM Manila is 22:00 UTC previous day
     }
     return checkout;
   }
@@ -269,4 +269,5 @@ export function calculateExcessHours(
   if (overdueMs <= graceMs) return 0;
   return Math.max(0, Math.ceil(overdueMs / (60 * 60 * 1000)));
 }
+
 

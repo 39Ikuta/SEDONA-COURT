@@ -23,6 +23,8 @@ export interface ShiftSettlementSummary {
   endTime: string;
   totalIncome: number;
   totalGcash: number;
+  totalCashTendered?: number;
+  totalChangeGiven?: number;
   totalCashReceived: number;
   totalExpenses: number;
   expectedCashOnHand: number;

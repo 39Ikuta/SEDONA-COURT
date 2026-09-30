@@ -34,7 +34,7 @@ export interface SanitizedRoomAvailability {
  * Maps raw room state into the 3 customer-facing availability buckets.
  * - available: room is ready for walk-in/check-in
  * - occupied / overdue: room is currently occupied
- * - cleaning / maintenance: room is unavailable
+ * - maintenance: room is unavailable
  * - Room 12 / Staff House: always unavailable
  */
 export function bucketRoomStatus(number: string, roomType: string, state: string): 'available' | 'occupied' | 'unavailable' {
@@ -47,7 +47,6 @@ export function bucketRoomStatus(number: string, roomType: string, state: string
     case 'occupied':
     case 'overdue':
       return 'occupied';
-    case 'cleaning':
     case 'maintenance':
     default:
       return 'unavailable';

@@ -42,11 +42,11 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filter available candidate target rooms (available or clean, not current room, not staff house)
+  // Filter available candidate target rooms (available, not current room, not staff house)
   const candidateRooms = allRooms.filter(
     (r) =>
       r.number !== sourceRoom.number &&
-      (r.state === 'available' || r.state === 'clean') &&
+      r.state === 'available' &&
       !r.isStaffHouse &&
       r.roomType !== 'Staff House' &&
       r.number !== '12'
@@ -176,7 +176,7 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
             {/* Target Room Selector */}
             <div className="space-y-2">
               <label className="text-xs font-mono uppercase font-bold text-charcoal/70 flex items-center justify-between">
-                <span>Select Destination Room (Available / Clean)</span>
+                <span>Select Destination Room (Available)</span>
                 <span className="text-[11px] font-normal text-charcoal/50">
                   {candidateRooms.length} room(s) available
                 </span>
@@ -221,7 +221,7 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
                 </div>
               ) : (
                 <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-center text-amber-900 font-mono text-xs">
-                  No available or clean rooms found to transfer this guest. Please clean a room first.
+                  No available rooms found to transfer this guest.
                 </div>
               )}
             </div>
@@ -282,7 +282,7 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
-                placeholder="e.g. Guest moved immediately; housekeeping notified to deep-clean Room 101."
+                placeholder="e.g. Guest moved immediately; Room 101 released back to available."
                 className="w-full px-3.5 py-2 bg-white border border-secondary rounded-xl text-xs font-mono text-charcoal outline-none focus:border-primary resize-none"
               />
             </div>
@@ -308,7 +308,7 @@ export const TransferRoomModal: React.FC<TransferRoomModalProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <Check size={13} className="text-emerald-700 shrink-0" />
-                  <span>Old Room {sourceRoom.number} marked as <b>Cleaning</b></span>
+                  <span>Old Room {sourceRoom.number} marked as <b>Available</b></span>
                 </div>
               </div>
             </div>

@@ -30,26 +30,27 @@ export interface CashDrawerOptions {
   drawerPin?: 2 | 5;
 }
 
-/**
- * Standard ESC/POS Command Byte Sequences
- */
-export const ESC_POS = {
-  INIT: Buffer.from([0x1b, 0x40]), // ESC @ Initialize
-  ALIGN_LEFT: Buffer.from([0x1b, 0x61, 0x00]), // ESC a 0
-  ALIGN_CENTER: Buffer.from([0x1b, 0x61, 0x01]), // ESC a 1
-  ALIGN_RIGHT: Buffer.from([0x1b, 0x61, 0x02]), // ESC a 2
-  BOLD_ON: Buffer.from([0x1b, 0x45, 0x01]), // ESC E 1
-  BOLD_OFF: Buffer.from([0x1b, 0x45, 0x00]), // ESC E 0
-  DOUBLE_HEIGHT_ON: Buffer.from([0x1d, 0x21, 0x01]), // GS ! 1
-  DOUBLE_WIDTH_ON: Buffer.from([0x1d, 0x21, 0x10]), // GS ! 16
-  DOUBLE_BOTH_ON: Buffer.from([0x1d, 0x21, 0x11]), // GS ! 17
-  NORMAL_TEXT: Buffer.from([0x1d, 0x21, 0x00]), // GS ! 0
-  CUT_FULL: Buffer.from([0x1d, 0x56, 0x00]), // GS V 0
-  CUT_PARTIAL: Buffer.from([0x1d, 0x56, 0x01]), // GS V 1
-  FEED_AND_CUT: Buffer.from([0x1d, 0x56, 0x41, 0x03]), // GS V 65 3
-  DRAWER_PIN2: Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]), // ESC p 0 25 250 (Pin 2 kick)
-  DRAWER_PIN5: Buffer.from([0x1b, 0x70, 0x01, 0x19, 0xfa]), // ESC p 1 25 250 (Pin 5 kick)
+import {
+  ESC_POS,
+  ReceiptRawPrintOptions,
+  buildReceiptEscPosBuffer,
+  DepositSlipPrintOptions,
+  DepositRefundSlipPrintOptions,
+  buildDepositSlipEscPosBuffer,
+  buildDepositRefundSlipEscPosBuffer,
+} from '../../server/utils/escpos';
+export {
+  ESC_POS,
+  buildReceiptEscPosBuffer,
+  buildDepositSlipEscPosBuffer,
+  buildDepositRefundSlipEscPosBuffer,
 };
+export type {
+  ReceiptRawPrintOptions,
+  DepositSlipPrintOptions,
+  DepositRefundSlipPrintOptions,
+};
+
 
 /**
  * Builds CSS wrapper for ultra-high-quality thermal receipt rendering.
@@ -323,7 +324,39 @@ export function registerPrinterIpc(getMainWindow: () => BrowserWindow | null) {
       });
     });
   });
+
+  // ─── 5. Raw ESC/POS Receipt Thermal Print (58mm & 80mm Native) ────────────
+  ipcMain.handle('printer:print-receipt-raw', async (_, options: ReceiptRawPrintOptions) => {
+    return new Promise((resolve) => {
+      const host = options.host || '127.0.0.1';
+      const port = options.port || 9100;
+      const rollWidth = options.rollWidth || '80mm';
+
+      const payload = buildReceiptEscPosBuffer(options, rollWidth);
+
+      const client = new net.Socket();
+      client.setTimeout(4000);
+
+      client.connect(port, host, () => {
+        client.write(payload, () => {
+          client.end();
+          resolve({ success: true, message: `Raw receipt dispatched to ${host}:${port} (${rollWidth})` });
+        });
+      });
+
+      client.on('error', (err) => {
+        client.destroy();
+        resolve({ success: false, error: `Socket error connecting to ${host}:${port}: ${err.message}` });
+      });
+
+      client.on('timeout', () => {
+        client.destroy();
+        resolve({ success: false, error: `Connection timed out to ${host}:${port}` });
+      });
+    });
+  });
 }
+
 
 /**
  * Dispatches an RJ11 kick drawer pulse via raw ESC/POS commands

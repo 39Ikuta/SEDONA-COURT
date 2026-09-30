@@ -94,7 +94,6 @@ export const ShiftHandoff: React.FC<ShiftHandoffProps> = ({
   // Active Occupied / Overdue rooms counting
   const occupiedCount = rooms.filter(r => r.state === 'occupied').length;
   const overdueCount = rooms.filter(r => r.state === 'overdue').length;
-  const cleaningCount = rooms.filter(r => r.state === 'cleaning').length;
   const availableCount = rooms.filter(r => r.state === 'available').length;
 
   const currentDateTime = new Date().toLocaleString('en-US', {
@@ -370,7 +369,7 @@ export const ShiftHandoff: React.FC<ShiftHandoffProps> = ({
                   Frontdesk Apartment Occupancy
                 </h3>
 
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100/50">
                     <span className="text-xl font-bold font-mono text-emerald-700 block">{occupiedCount}</span>
                     <span className="text-[8px] text-emerald-600 font-mono uppercase font-bold">Occupied</span>
@@ -378,10 +377,6 @@ export const ShiftHandoff: React.FC<ShiftHandoffProps> = ({
                   <div className="p-2 bg-rose-50 rounded-xl border border-rose-100/50">
                     <span className="text-xl font-bold font-mono text-rose-700 block">{overdueCount}</span>
                     <span className="text-[8px] text-rose-600 font-mono uppercase font-bold">Overdue</span>
-                  </div>
-                  <div className="p-2 bg-amber-50 rounded-xl border border-amber-100/50">
-                    <span className="text-xl font-bold font-mono text-amber-700 block">{cleaningCount}</span>
-                    <span className="text-[8px] text-amber-600 font-mono uppercase font-bold">Cleaning</span>
                   </div>
                   <div className="p-2 bg-charcoal/5 rounded-xl border border-secondary">
                     <span className="text-xl font-bold font-mono text-charcoal/60 block">{availableCount}</span>
@@ -737,10 +732,6 @@ export const ShiftHandoff: React.FC<ShiftHandoffProps> = ({
                   <div className="flex justify-between">
                     <span>OVERDUE / LATE OUTS:</span>
                     <span>{overdueCount} Rooms</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>CLEANING IN PROGRESS:</span>
-                    <span>{cleaningCount} Rooms</span>
                   </div>
                   <div className="flex justify-between">
                     <span>VACANT AVAILABLE:</span>

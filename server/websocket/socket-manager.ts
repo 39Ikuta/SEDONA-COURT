@@ -220,6 +220,53 @@ export class SocketManager {
   }
 
   /**
+   * Broadcast alarm state machine transition event (Task 2)
+   * Emitted to all terminals on state transitions so no terminal double-fires.
+   */
+  broadcastAlarmStateChanged(data: any): void {
+    if (!this.io) return;
+    this.io.emit('room:alarm_state_changed', data);
+    console.log(`🔔 Alarm State Changed [Room ${data.roomNumber}]: ${data.previousState} -> ${data.newState}`);
+  }
+
+  /**
+   * Broadcast audio trigger for alarms (WARNING single beep, OVERDUE alarm repeat)
+   * Emitted from server tick ONLY so no terminal fires from local timer.
+   */
+  broadcastAlarmAudioTrigger(data: { roomNumber: string; state: string; repeatCount?: number }): void {
+    if (!this.io) return;
+    this.io.emit('room:alarm_audio_trigger', data);
+    console.log(`🔊 Alarm Audio Trigger [Room ${data.roomNumber}]: State ${data.state} (Repeat: ${data.repeatCount ?? 0})`);
+  }
+
+  /**
+   * Broadcast alarm silenced event (snooze, extend, checkout)
+   */
+  broadcastAlarmSilenced(data: { roomNumber: string; reason?: string }): void {
+    if (!this.io) return;
+    this.io.emit('room:alarm_silenced', data);
+    console.log(`🔇 Alarm Silenced [Room ${data.roomNumber}]${data.reason ? ` (${data.reason})` : ''}`);
+  }
+
+  /**
+   * Broadcast open-time silent reminder (every open_time_reminder_hours, badge/toast only, no audio)
+   */
+  broadcastOpenTimeReminder(data: { roomNumber: string; elapsedHours: number; timestamp: string }): void {
+    if (!this.io) return;
+    this.io.emit('room:open_time_reminder', data);
+    console.log(`⏱️ Open Time Silent Reminder [Room ${data.roomNumber}]: ${data.elapsedHours}h elapsed`);
+  }
+
+  /**
+   * Broadcast alarm acknowledgment event to all terminals
+   */
+  broadcastAlarmAcknowledged(data: any): void {
+    if (!this.io) return;
+    this.io.emit('room:alarm_acknowledged', data);
+    console.log(`🔕 Alarm Acknowledged [Room ${data.roomNumber}] by ${data.acknowledgedBy}`);
+  }
+
+  /**
    * Broadcast system notification (existing interface)
    */
   broadcastSystemNotification(message: string, type: string): void {

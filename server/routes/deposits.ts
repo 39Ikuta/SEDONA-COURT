@@ -71,25 +71,63 @@ export function rowToDeposit(row: any): DepositTransactionRecord {
   };
 }
 
+/**
+ * Get guest balance with optimistic locking support.
+ * Returns current balance and lock version for atomic operations.
+ * C-02 FIX: Uses materialized balance cache to prevent race conditions.
+ */
 async function getGuestBalance(conn: any, guestIdentifier: string): Promise<{
   balanceCentavos: number;
   totalInCentavos: number;
   totalOutCentavos: number;
+  lockVersion?: number;
 }> {
+  // Try to get from cache first (for better performance and locking support)
+  const cacheRes = await conn.query(
+    `SELECT balance_centavos, total_in_centavos, total_out_centavos, lock_version
+     FROM guest_balance_cache
+     WHERE LOWER(guest_identifier) = LOWER(?)`,
+    [guestIdentifier]
+  );
+
+  if (cacheRes.rows.length > 0) {
+    const row = cacheRes.rows[0];
+    return {
+      balanceCentavos: Number(row.balance_centavos || 0),
+      totalInCentavos: Number(row.total_in_centavos || 0),
+      totalOutCentavos: Number(row.total_out_centavos || 0),
+      lockVersion: Number(row.lock_version || 0),
+    };
+  }
+
+  // Fallback: compute from transactions if not in cache yet
   const sumRes = await conn.query(
-    `SELECT 
+    `SELECT
        COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount_centavos ELSE -amount_centavos END), 0) AS balance_centavos,
        COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount_centavos ELSE 0 END), 0) AS total_in_centavos,
        COALESCE(SUM(CASE WHEN direction = 'OUT' THEN amount_centavos ELSE 0 END), 0) AS total_out_centavos
-     FROM deposit_transactions 
+     FROM deposit_transactions
      WHERE LOWER(guest_identifier) = LOWER(?)`,
     [guestIdentifier]
   );
   const row = sumRes.rows[0] || {};
+  const balanceCentavos = Number(row.balance_centavos || 0);
+  const totalInCentavos = Number(row.total_in_centavos || 0);
+  const totalOutCentavos = Number(row.total_out_centavos || 0);
+
+  // Initialize cache entry
+  await conn.query(
+    `INSERT OR IGNORE INTO guest_balance_cache
+     (guest_identifier, balance_centavos, total_in_centavos, total_out_centavos, last_updated, lock_version)
+     VALUES (?, ?, ?, ?, datetime('now', 'localtime'), 0)`,
+    [guestIdentifier, balanceCentavos, totalInCentavos, totalOutCentavos]
+  );
+
   return {
-    balanceCentavos: Number(row.balance_centavos || 0),
-    totalInCentavos: Number(row.total_in_centavos || 0),
-    totalOutCentavos: Number(row.total_out_centavos || 0),
+    balanceCentavos,
+    totalInCentavos,
+    totalOutCentavos,
+    lockVersion: 0,
   };
 }
 
@@ -299,6 +337,18 @@ router.post('/', requireDepositStaff, asyncHandler(async (req: Request, res: Res
         ]
       );
 
+      // Update balance cache for IN transactions
+      await conn.query(
+        `INSERT INTO guest_balance_cache (guest_identifier, balance_centavos, total_in_centavos, total_out_centavos, last_updated, lock_version)
+         VALUES (?, ?, ?, 0, datetime('now', 'localtime'), 1)
+         ON CONFLICT(guest_identifier) DO UPDATE SET
+           balance_centavos = balance_centavos + ?,
+           total_in_centavos = total_in_centavos + ?,
+           last_updated = datetime('now', 'localtime'),
+           lock_version = lock_version + 1`,
+        [guestIdentifier, amountCentavos, amountCentavos, amountCentavos, amountCentavos]
+      );
+
       // 3. Insert real audit log entry (server-derived operator)
       const auditLogId = `log-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
       const formattedAmount = (amountCentavos / 100).toFixed(2);
@@ -425,8 +475,9 @@ router.post('/apply', requireDepositStaff, asyncHandler(async (req: Request, res
         };
       }
 
-      // 2. Strict Balance Sufficiency Check INSIDE transaction immediately before deducting
-      const { balanceCentavos } = await getGuestBalance(conn, guestIdentifier);
+      // 2. Strict Balance Sufficiency Check INSIDE transaction with optimistic locking
+      // C-02 FIX: Use lockVersion to prevent race conditions
+      const { balanceCentavos, lockVersion } = await getGuestBalance(conn, guestIdentifier);
       if (balanceCentavos < amountCentavos) {
         throw Object.assign(
           new Error(`Insufficient deposit balance. Available: ₱${(balanceCentavos / 100).toFixed(2)}, requested deduction: ₱${(amountCentavos / 100).toFixed(2)}`),
@@ -521,6 +572,27 @@ router.post('/apply', requireDepositStaff, asyncHandler(async (req: Request, res
           operator,
         ]
       );
+
+      // C-02 FIX: Update balance cache with optimistic locking
+      // This prevents race conditions by ensuring the balance hasn't changed since we checked it
+      const updateResult = await conn.query(
+        `UPDATE guest_balance_cache
+         SET balance_centavos = balance_centavos - ?,
+             total_out_centavos = total_out_centavos + ?,
+             last_updated = datetime('now', 'localtime'),
+             lock_version = lock_version + 1
+         WHERE LOWER(guest_identifier) = LOWER(?)
+           AND lock_version = ?`,
+        [amountCentavos, amountCentavos, guestIdentifier, lockVersion]
+      );
+
+      // If no rows were updated, another transaction modified the balance
+      if (updateResult.affectedRows === 0) {
+        throw Object.assign(
+          new Error('Balance was modified by another transaction. Please retry.'),
+          { statusCode: 409 }
+        );
+      }
 
       // 5. Append audit log entry (server-derived operator)
       const auditLogId = `log-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;

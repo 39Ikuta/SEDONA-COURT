@@ -124,31 +124,69 @@ export const WalkInCheckIn: React.FC<WalkInCheckInProps> = ({
             className="w-full px-3 py-2 bg-cream/10 border border-secondary rounded-xl text-xs outline-none focus:border-primary transition"
           />
         </div>
-        <div className="space-y-1.5 col-span-2">
-          <label className="text-[11px] font-mono uppercase tracking-wider text-charcoal/50 block">
-            Packs Count (Guests)
-          </label>
-          <div className="flex gap-1.5">
-            {[1, 2, 3, 4, 5, 6].map((num) => (
-              <button
-                key={num}
-                type="button"
-                onClick={() => setNumGuests(num)}
-                className={`flex-1 py-2 text-center text-xs font-mono font-bold rounded-xl border transition cursor-pointer ${
-                  numGuests === num
-                    ? 'bg-primary border-primary text-white shadow-sm'
-                    : 'bg-white border-secondary/50 text-charcoal/80 hover:bg-cream/40'
-                }`}
-              >
-                {num}
-              </button>
-            ))}
+        <div className="space-y-2 col-span-2">
+          <div className="flex justify-between items-baseline">
+            <label className="text-[11px] font-mono uppercase tracking-wider text-charcoal/70 font-bold">
+              Check-in Persons (Occupancy)
+            </label>
+            <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              Base covers 2 persons
+            </span>
           </div>
-          {numGuests > 2 && (
-            <p className="text-[10px] text-amber-700 font-mono mt-1">
-              +{numGuests - 2} Extra guest(s): +₱{((numGuests - 2) * 150).toLocaleString()} surcharge applies (capacity: 2 pax included).
-            </p>
-          )}
+          <div className="grid grid-cols-6 gap-1.5">
+            {[1, 2, 3, 4, 5, 6].map((num) => {
+              const isSelected = numGuests === num;
+              const isExtra = num > 2;
+              return (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => setNumGuests(num)}
+                  className={`py-2 text-center rounded-xl border transition cursor-pointer flex flex-col items-center justify-center ${
+                    isSelected
+                      ? 'bg-primary border-primary text-white shadow-sm ring-1 ring-primary/40'
+                      : 'bg-white border-secondary/50 text-charcoal/80 hover:bg-cream/40'
+                  }`}
+                >
+                  <span className="text-xs font-mono font-bold">{num}</span>
+                  <span className={`text-[8px] font-mono ${isSelected ? 'text-white/80' : isExtra ? 'text-amber-700 font-bold' : 'text-charcoal/40'}`}>
+                    {num === 1 ? 'Single' : num === 2 ? 'Base (2)' : `+${num - 2} Extra`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="bg-cream/30 p-2.5 rounded-xl border border-secondary/50 space-y-1 font-mono text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="text-charcoal/60 uppercase">Occupancy:</span>
+              <span className="font-bold text-primary">
+                {numGuests === 1 ? (
+                  'PERSONS: 1 (Single Occupancy - Base Rate)'
+                ) : numGuests === 2 ? (
+                  'PERSONS: 2 (Base Rate Included)'
+                ) : (
+                  `PERSONS: 2 + ${numGuests - 2} (${numGuests} Total Pax)`
+                )}
+              </span>
+            </div>
+            {numGuests > 2 ? (
+              <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 flex justify-between items-center text-[10px]">
+                <div>
+                  <span className="font-bold block">Extra Person Surcharge (extra-person)</span>
+                  <span className="text-amber-800">
+                    +{numGuests - 2} extra person(s) × ₱150.00 (base covers 2 pax)
+                  </span>
+                </div>
+                <span className="font-bold text-sm text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300">
+                  +₱{((numGuests - 2) * 150).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            ) : (
+              <p className="text-[10px] text-emerald-800 font-sans">
+                Base rate covers up to 2 persons (Standard single / double occupancy).
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

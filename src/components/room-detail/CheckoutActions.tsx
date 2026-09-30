@@ -4,6 +4,7 @@ import { Room, Deposit } from '../../types';
 import { CreditCard, ChevronRight, UserCheck, Loader2, AlertCircle, ShieldAlert, ChevronDown, Printer, Ticket, Banknote, ShieldCheck } from 'lucide-react';
 import { formatStayDuration } from '../../utils/pricing';
 import { getDiscountAmountPesos } from '../../utils/discount-rates';
+import { calculateChange, validateSplitPayment, pesosToCentavos, centavosToPesos } from '../../utils/money';
 
 interface CheckoutActionsProps {
   room: Room;
@@ -183,8 +184,8 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
   const isDiscountActive = discountType !== 'NONE';
   const isDiscountUnmapped = isDiscountActive && Boolean(discountUnconfiguredMessage);
 
-  // Mixed split balance check
-  const isMixedImbalanced = paymentMethod === 'MIXED' && effectiveTotalDue > 0 && Math.abs((cashAmount + gcashAmount) - effectiveTotalDue) >= 0.01;
+  // Mixed split balance check - using centavos arithmetic
+  const isMixedImbalanced = paymentMethod === 'MIXED' && effectiveTotalDue > 0 && !validateSplitPayment(cashAmount, gcashAmount, effectiveTotalDue);
 
   // Tendered amount validation
   const cashDue = paymentMethod === 'MIXED' ? cashAmount : effectiveTotalDue;
@@ -194,8 +195,9 @@ export const CheckoutActions: React.FC<CheckoutActionsProps> = ({
     ? (amountTendered || 0)
     : effectiveTotalDue;
 
+  // Calculate change using safe centavos arithmetic
   const changeDue = (paymentMethod === 'CASH' || paymentMethod === 'MIXED')
-    ? Math.max(0, effectiveTendered - cashDue)
+    ? calculateChange(effectiveTendered, cashDue)
     : 0;
 
   const isTenderedInsufficient = effectiveTotalDue > 0 && (

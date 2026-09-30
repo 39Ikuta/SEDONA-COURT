@@ -5,6 +5,8 @@
 -- ============================================================
 
 -- Drop tables in dependency order (for clean re-creation)
+DROP TABLE IF EXISTS deposit_counters CASCADE;
+DROP TABLE IF EXISTS receipt_counters CASCADE;
 DROP TABLE IF EXISTS pos_revenue CASCADE;
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS handoff_tasks CASCADE;
@@ -52,6 +54,7 @@ CREATE TABLE rooms (
   towel_sets     INTEGER DEFAULT 0,
   check_in_time  TIMESTAMPTZ,
   check_out_time TIMESTAMPTZ,
+  allocated_receipt_no VARCHAR(64) DEFAULT NULL,
   is_overdue     BOOLEAN DEFAULT FALSE,
   charged_food   JSONB DEFAULT '[]'::jsonb,
   updated_at     TIMESTAMPTZ DEFAULT NOW()
@@ -70,6 +73,7 @@ CREATE TABLE scheduled_bookings (
   check_out_date DATE NOT NULL,
   rate_selected  VARCHAR(10) NOT NULL,
   num_guests     INTEGER DEFAULT 1,
+  allocated_receipt_no VARCHAR(64) DEFAULT NULL,
   status         VARCHAR(20) NOT NULL DEFAULT 'scheduled'
                  CHECK (status IN ('scheduled', 'checked-in', 'cancelled')),
   created_at     TIMESTAMPTZ DEFAULT NOW()
@@ -174,6 +178,28 @@ CREATE TABLE pos_revenue (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (date)
+);
+
+-- ============================================================
+-- RECEIPT & DEPOSIT COUNTERS
+-- Per-cashier, per-shift, per-business-date sequential numbering.
+-- ============================================================
+CREATE TABLE receipt_counters (
+  cashier_code   VARCHAR(10) NOT NULL,
+  shift_code     VARCHAR(5) NOT NULL,
+  business_date  VARCHAR(10) NOT NULL,
+  last_value     BIGINT NOT NULL DEFAULT 0,
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (cashier_code, shift_code, business_date)
+);
+
+CREATE TABLE deposit_counters (
+  cashier_code   VARCHAR(10) NOT NULL,
+  shift_code     VARCHAR(5) NOT NULL,
+  business_date  VARCHAR(10) NOT NULL,
+  last_value     BIGINT NOT NULL DEFAULT 0,
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (cashier_code, shift_code, business_date)
 );
 
 -- Indexes for commonly queried columns

@@ -280,6 +280,10 @@ export const POSCatalog: React.FC<POSCatalogProps> = ({
         subtotal,
         serviceCharge,
         total,
+        amountTendered: total,
+        changeAmount: 0,
+        amountTenderedCents: Math.round(total * 100),
+        changeCents: 0,
         cashierId: activeCashier
       };
 

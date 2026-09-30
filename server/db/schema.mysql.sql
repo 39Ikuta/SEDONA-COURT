@@ -11,6 +11,8 @@ CREATE DATABASE IF NOT EXISTS sedona_court
 USE sedona_court;
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS deposit_counters;
+DROP TABLE IF EXISTS receipt_counters;
 DROP TABLE IF EXISTS gcash_entries;
 DROP TABLE IF EXISTS cash_denomination_report;
 DROP TABLE IF EXISTS weekly_expenses;
@@ -60,7 +62,7 @@ CREATE TABLE rooms (
   tier ENUM('Standard', 'Deluxe', 'Suite') NOT NULL,
   floor INT NOT NULL DEFAULT 1,
   room_type VARCHAR(50) NOT NULL,
-  state ENUM('available', 'occupied', 'cleaning', 'overdue', 'maintenance') NOT NULL DEFAULT 'available',
+  state ENUM('available', 'occupied', 'overdue', 'maintenance') NOT NULL DEFAULT 'available',
   label VARCHAR(100) DEFAULT 'Available',
   guest_name VARCHAR(100) DEFAULT '',
   guest_id VARCHAR(100) DEFAULT '',
@@ -71,8 +73,22 @@ CREATE TABLE rooms (
   towel_sets INT DEFAULT 0,
   check_in_time DATETIME NULL,
   check_out_time DATETIME NULL,
+  check_in_at DATETIME NULL,
+  expected_checkout_at DATETIME NULL,
+  alarm_state ENUM('NORMAL', 'WARNING', 'DUE', 'OVERDUE') NOT NULL DEFAULT 'NORMAL',
+  acknowledged_at DATETIME NULL,
+  acknowledged_by VARCHAR(100) NULL,
   is_overdue BOOLEAN DEFAULT FALSE,
+  snoozed_until DATETIME NULL,
+  repeat_count INT NOT NULL DEFAULT 0,
+  billing_mode ENUM('standard', 'open_time') NOT NULL DEFAULT 'standard',
+  open_time_started_at DATETIME NULL,
+  last_reminder_at DATETIME NULL,
+  overtime_waived BOOLEAN NOT NULL DEFAULT FALSE,
+  overtime_waived_by VARCHAR(100) NULL,
+  overtime_waived_reason TEXT NULL,
   charged_food JSON NULL,
+  allocated_receipt_no VARCHAR(64) DEFAULT NULL,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_rooms_state (state),
   INDEX idx_rooms_number (number)
@@ -92,6 +108,7 @@ CREATE TABLE scheduled_bookings (
   rate_selected VARCHAR(10) NOT NULL,
   num_guests INT DEFAULT 1,
   status ENUM('scheduled', 'checked-in', 'cancelled') NOT NULL DEFAULT 'scheduled',
+  allocated_receipt_no VARCHAR(64) DEFAULT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_bookings_status (status),
   INDEX idx_bookings_dates (check_in_date, check_out_date)
@@ -124,9 +141,91 @@ CREATE TABLE receipts (
   rate_selected VARCHAR(20) NULL,
   stay_duration VARCHAR(50) NULL,
   cashier_id VARCHAR(50) NULL,
+  amount_tendered_cents BIGINT NULL,
+  change_cents BIGINT NULL,
+  consumed_minutes INT NULL,
+  idempotency_key VARCHAR(100) NULL,
+  status ENUM('valid', 'void') NOT NULL DEFAULT 'valid',
+  void_reason TEXT NULL,
+  voided_at DATETIME NULL,
+  voided_by VARCHAR(50) NULL,
+  reprint_count INT NOT NULL DEFAULT 0,
+  last_reprinted_at DATETIME NULL,
+  last_reprinted_by VARCHAR(50) NULL,
+  receipt_snapshot LONGTEXT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE INDEX idx_receipts_idempotency_key (idempotency_key),
   INDEX idx_receipts_date (date_time),
-  INDEX idx_receipts_room (room_number)
+  INDEX idx_receipts_room (room_number),
+  INDEX idx_receipts_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- RECEIPT & DEPOSIT SEQUENCES
+-- Strictly increasing sequential counters for official receipts and deposits.
+-- ============================================================
+CREATE TABLE receipt_sequences (
+  name VARCHAR(50) PRIMARY KEY,
+  prefix VARCHAR(20) NOT NULL DEFAULT 'SCTI',
+  last_value BIGINT NOT NULL DEFAULT 43,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO receipt_sequences (name, prefix, last_value)
+VALUES ('default', 'SCTI', 43);
+
+INSERT IGNORE INTO receipt_sequences (name, prefix, last_value)
+VALUES ('deposit_default', 'DEP', 0);
+
+-- ============================================================
+-- RECEIPT & DEPOSIT COUNTERS
+-- Per-cashier, per-shift, per-business-date sequential numbering.
+-- ============================================================
+CREATE TABLE receipt_counters (
+  cashier_code VARCHAR(10) NOT NULL,
+  shift_code VARCHAR(5) NOT NULL,
+  business_date VARCHAR(10) NOT NULL,
+  last_value BIGINT NOT NULL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (cashier_code, shift_code, business_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE deposit_counters (
+  cashier_code VARCHAR(10) NOT NULL,
+  shift_code VARCHAR(5) NOT NULL,
+  business_date VARCHAR(10) NOT NULL,
+  last_value BIGINT NOT NULL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (cashier_code, shift_code, business_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- DEPOSITS
+-- Guest security/advance deposits, held and resolved separately from sales.
+-- ============================================================
+CREATE TABLE deposits (
+  id VARCHAR(64) PRIMARY KEY,
+  booking_id VARCHAR(64) NULL,
+  room_id VARCHAR(32) NULL,
+  amount_cents BIGINT NOT NULL,
+  status ENUM('held', 'refunded', 'applied', 'forfeited') NOT NULL DEFAULT 'held',
+  collected_by VARCHAR(64) NOT NULL,
+  collected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_by VARCHAR(64) NULL,
+  resolved_at DATETIME NULL,
+  deposit_number VARCHAR(32) NOT NULL UNIQUE,
+  notes TEXT NULL,
+  refund_amount_cents BIGINT NOT NULL DEFAULT 0,
+  applied_amount_cents BIGINT NOT NULL DEFAULT 0,
+  linked_receipt_no VARCHAR(64) NULL,
+  deposit_snapshot LONGTEXT NULL,
+  resolution_snapshot LONGTEXT NULL,
+  reprint_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_deposits_room (room_id),
+  INDEX idx_deposits_booking (booking_id),
+  INDEX idx_deposits_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -443,3 +542,14 @@ CREATE TABLE IF NOT EXISTS inventory_events (
   INDEX idx_inv_events_type (event_type),
   CONSTRAINT chk_balance_after CHECK (balance_after >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- SYSTEM SETTINGS
+-- Configurable key-value operational settings (e.g. alarm thresholds)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS system_settings (
+  `key` VARCHAR(64) PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

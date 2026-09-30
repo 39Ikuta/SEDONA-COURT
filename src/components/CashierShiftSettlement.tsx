@@ -655,9 +655,20 @@ export const CashierShiftSettlement: React.FC<CashierShiftSettlementProps> = ({ 
           <div className="font-display font-black text-2xl text-white tracking-tight">
             ₱{(summary?.expectedCashOnHand || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <p className="text-[10px] font-mono text-emerald-200/90 font-medium">
-            ✔ Actual cash to count & turnover to next cashier
-          </p>
+          <div className="text-[10px] font-mono text-emerald-200/90 space-y-0.5 pt-1.5 border-t border-emerald-700/60">
+            <div className="flex justify-between">
+              <span>Cash Tendered:</span>
+              <span className="font-bold">₱{(summary?.totalCashTendered || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Change Given:</span>
+              <span className="font-bold">-₱{(summary?.totalChangeGiven || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between font-bold text-white pt-0.5 border-t border-emerald-700/40">
+              <span>Net Cash Received:</span>
+              <span>₱{(summary?.totalCashReceived || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
         </div>
       </div>
 

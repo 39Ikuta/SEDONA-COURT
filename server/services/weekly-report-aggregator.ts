@@ -236,13 +236,17 @@ export class WeeklyReportAggregator {
 
   /**
    * Called when a receipt is voided - reverse its shift entry contribution.
+   * Accepts both snake_case (DB) and camelCase (rowToReceipt) shapes.
    */
   async onReceiptVoided(receipt: Receipt): Promise<void> {
     try {
-      const receiptDate = this.parseDateSafe(receipt.date_time);
+      const r = receipt as any;
+      const receiptNo = r.receipt_no ?? r.receiptNo;
+      const dateTime = r.date_time ?? r.dateTime;
+      const receiptDate = this.parseDateSafe(dateTime);
       const dateStr = format(receiptDate, 'yyyy-MM-dd');
-      const shiftType = this.getShiftType(receipt.date_time);
-      const revenue = this.parseRevenueFromReceipt(receipt);
+      const shiftType = this.getShiftType(dateTime ?? new Date().toISOString());
+      const revenue = this.parseRevenueFromReceipt({ items: r.items || [] } as Receipt);
       await pool.query(
         `UPDATE weekly_shift_entries
          SET room_bill = room_bill - $1,
@@ -259,13 +263,15 @@ export class WeeklyReportAggregator {
           revenue.drinksBill,
           revenue.miscellPurchases,
           revenue.extras,
-          receipt.total,
+          r.total ?? receipt.total,
           dateStr,
           shiftType
         ]
       );
-      await pool.query(`DELETE FROM gcash_entries WHERE receipt_no = ?`, [receipt.receipt_no]);
-      console.log(`↩️ Weekly entry reversed for void ${receipt.receipt_no} ${dateStr} ${shiftType}`);
+      if (receiptNo) {
+        await pool.query(`DELETE FROM gcash_entries WHERE receipt_no = ?`, [receiptNo]);
+      }
+      console.log(`↩️ Weekly entry reversed for void ${receiptNo} ${dateStr} ${shiftType}`);
     } catch (err) {
       console.error('Error in onReceiptVoided:', err);
       throw err;

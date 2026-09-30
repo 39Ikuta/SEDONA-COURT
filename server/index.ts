@@ -10,8 +10,12 @@
 // Explicitly set server timezone to Asia/Manila (Priority 2d)
 process.env.TZ = process.env.TZ || 'Asia/Manila';
 
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.TEST === 'true';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
+if (isTestEnv) {
+  process.env.NODE_ENV = 'test';
+}
 
 import fs from 'fs';
 import path from 'path';
@@ -126,6 +130,8 @@ app.use(cors(expressCorsOptions));
 app.options('*', cors(expressCorsOptions));
 app.use(express.json({ limit: '2mb' }));
 
+import { evaluateActiveRoomAlarms } from './services/alarm-service';
+
 // ─── Health Check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -136,6 +142,17 @@ app.get('/api/health', (_req, res) => {
       connectedClients: socketManager.getConnectedCount(),
     },
     environment: envConfig.NODE_ENV,
+  });
+});
+
+// ─── Server Time Sync (Task 2) ─────────────────────────────────────────────────
+// Allows terminals to compute local countdowns with server-time offset instead of device clock.
+app.get('/api/time', (_req, res) => {
+  const now = new Date();
+  res.json({
+    serverTime: now.toISOString(),
+    timestamp: now.getTime(),
+    timezone: process.env.TZ || 'Asia/Manila',
   });
 });
 
@@ -190,6 +207,13 @@ async function start() {
       console.log(`   Health check: http://localhost:${PORT}/api/health`);
       console.log(`   WebSocket:    ws://0.0.0.0:${PORT}`);
       console.log(`   Environment:  ${envConfig.NODE_ENV}\n`);
+
+      // Start periodic Alarm Window State Machine scheduler (ticks every 15s, safe across restarts)
+      evaluateActiveRoomAlarms().catch((err) => console.error('Initial alarm evaluation warning:', err));
+      setInterval(() => {
+        evaluateActiveRoomAlarms().catch((err) => console.error('Alarm scheduler tick warning:', err));
+      }, 15000);
+      console.log('⏰ Alarm Window State Machine scheduler active (15s evaluation interval)');
     });
   } catch (err) {
     console.error('❌ Failed to start server:', err);
@@ -198,7 +222,8 @@ async function start() {
 }
 
 // Start listener automatically unless running in test environment
-if (process.env.NODE_ENV !== 'test') {
+const isTestProcess = process.env.NODE_ENV === 'test' || process.env.TEST === 'true' || process.argv.some(a => a.includes('.test.'));
+if (!isTestProcess) {
   start();
 }
 

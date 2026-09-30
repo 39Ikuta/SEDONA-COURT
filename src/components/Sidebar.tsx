@@ -17,7 +17,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const totalRooms = rooms.length;
   const occupiedCount = rooms.filter((r) => r.state === 'occupied').length;
   const availableCount = rooms.filter((r) => r.state === 'available').length;
-  const cleaningCount = rooms.filter((r) => r.state === 'cleaning').length;
   const overdueCount = rooms.filter((r) => r.state === 'overdue').length;
   const maintenanceCount = rooms.filter((r) => r.state === 'maintenance').length;
 
@@ -38,7 +37,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'almost_in_time', label: '⚠️ Almost in Time', count: almostInTimeCount, isUrgent: true },
     { id: 'available', label: 'Available', count: availableCount, color: 'bg-green-100 text-green-700' },
     { id: 'occupied', label: 'Occupied', count: occupiedCount, color: 'bg-rose-100 text-rose-700' },
-    { id: 'cleaning', label: 'Cleaning', count: cleaningCount, color: 'bg-amber-100 text-amber-700' },
     { id: 'overdue', label: 'Late Checkout', count: overdueCount, color: 'bg-purple-100 text-purple-700' },
   ];
 
@@ -163,25 +161,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            {/* Cleaning row */}
-            <div className="space-y-1">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-medium text-charcoal/80 flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600/10 flex-shrink-0" />
-                  Cleaning
-                </span>
-                <span className="font-mono text-[11px] font-bold text-charcoal/60">
-                  {cleaningCount} <span className="text-charcoal/40 font-normal">({Math.round((cleaningCount/totalRooms)*100)}%)</span>
-                </span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-cream/40 overflow-hidden border border-secondary/35">
-                <div
-                  className="bg-amber-500 h-full rounded-full transition-all duration-1000"
-                  style={{ width: `${(cleaningCount / totalRooms) * 100}%` }}
-                />
-              </div>
-            </div>
-
             {/* Overdue row */}
             <div className="space-y-1">
               <div className="flex justify-between items-center text-xs">
@@ -235,8 +214,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ? 'bg-green-500'
                         : filter.id === 'occupied'
                         ? 'bg-rose-500'
-                        : filter.id === 'cleaning'
-                        ? 'bg-amber-500'
                         : 'bg-purple-500'
                     }`}
                   />

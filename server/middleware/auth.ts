@@ -203,6 +203,18 @@ export async function requireDepositStaff(req: Request, res: Response, next: Nex
   }
 }
 
+export const CASHIER_OPERATOR_ROLES = ['cashier', 'admin', 'owner'] as const;
+export type CashierOperatorRole = typeof CASHIER_OPERATOR_ROLES[number];
+
+/**
+ * Strict role-gated authentication middleware for checkout, payment finalization, and receipt operations.
+ * Allows ONLY 'cashier', 'admin', and 'owner' roles.
+ * Denies 'kitchen' (403), 'customer_display' (403), and missing/invalid token (401).
+ */
+export async function requireCashierStaff(req: Request, res: Response, next: NextFunction): Promise<void> {
+  return requireDepositStaff(req, res, next);
+}
+
 export const INVENTORY_STAFF_ROLES = ['cashier', 'admin', 'owner'] as const;
 export type InventoryStaffRole = typeof INVENTORY_STAFF_ROLES[number];
 

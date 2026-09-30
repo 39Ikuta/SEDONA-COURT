@@ -427,7 +427,7 @@ export const AdminForceCheckoutManager: React.FC<AdminForceCheckoutManagerProps>
                         ) : (
                           <>
                             <CheckCircle2 size={14} />
-                            <span>Approve & Release Room to Cleaning</span>
+                            <span>Approve & Release Room to Available</span>
                           </>
                         )}
                       </button>

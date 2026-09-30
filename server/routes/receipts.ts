@@ -14,6 +14,7 @@ import { getDiscountAmount, normalizeDiscountType } from '../utils/discount-rate
 import { asyncHandler } from '../utils/async-handler';
 import { inventoryService } from '../services/inventory-service';
 import { sequenceService, formatConsumedTime, maskDiscountCardId } from '../services/sequence-service';
+import { safeCentavosAdd, validateCentavos, validateSplitPaymentCentavos, validateReasonableBill, centavosToPesos } from '../utils/money';
 import { buildReceiptEscPosBuffer } from '../utils/escpos';
 import { getBusinessDateAndShift, resolveDateRange, analyticsService } from '../services/analytics-service';
 
@@ -324,14 +325,14 @@ export async function handleGetReceiptsLedger(req: Request, res: Response): Prom
   const totalInvoiceCount = allFormattedRecords.filter(r => r.recordType === 'sale').length;
   const validInvoiceCount = validSales.length;
   const voidInvoiceCount = voidSales.length;
-  const totalSalesAmount = parseFloat(validSales.reduce((sum, r) => sum + r.total, 0).toFixed(2));
-  const totalSubtotal = parseFloat(validSales.reduce((sum, r) => sum + r.subtotal, 0).toFixed(2));
-  const totalDiscountAmount = parseFloat(validSales.reduce((sum, r) => sum + (r.discount || 0), 0).toFixed(2));
-  const totalCashAmount = parseFloat(validSales.reduce((sum, r) => sum + (r.cashAmount || (r.paymentMethod === 'CASH' ? r.total : 0)), 0).toFixed(2));
-  const totalGCashAmount = parseFloat(validSales.reduce((sum, r) => sum + (r.gcashAmount || (r.paymentMethod === 'GCASH' ? r.total : 0)), 0).toFixed(2));
+  const totalSalesAmount = validSales.reduce((sum, r) => sum + Math.round(r.total * 100), 0) / 100;
+  const totalSubtotal = validSales.reduce((sum, r) => sum + Math.round(r.subtotal * 100), 0) / 100;
+  const totalDiscountAmount = validSales.reduce((sum, r) => sum + Math.round((r.discount || 0) * 100), 0) / 100;
+  const totalCashAmount = validSales.reduce((sum, r) => sum + Math.round((r.cashAmount || (r.paymentMethod === 'CASH' ? r.total : 0)) * 100), 0) / 100;
+  const totalGCashAmount = validSales.reduce((sum, r) => sum + Math.round((r.gcashAmount || (r.paymentMethod === 'GCASH' ? r.total : 0)) * 100), 0) / 100;
 
   const totalDepositsCount = depositsOnly.length;
-  const totalDepositsAmount = parseFloat(depositsOnly.reduce((sum, d) => sum + d.total, 0).toFixed(2));
+  const totalDepositsAmount = depositsOnly.reduce((sum, d) => sum + Math.round(d.total * 100), 0) / 100;
 
   // 4. Server-Side Sorting
   allFormattedRecords.sort((a, b) => {
@@ -540,7 +541,7 @@ router.post('/pre-print', requireCashierStaff, asyncHandler(async (req: Request,
     return;
   }
 
-  const roomRes = await pool.query('SELECT * FROM rooms WHERE number = ?', [roomNumber]);
+  const roomRes = await pool.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [roomNumber]);
   if (roomRes.rows.length === 0) {
     res.status(404).json({ error: `Room ${roomNumber} not found.` });
     return;
@@ -943,9 +944,64 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
 
       let discountIdRef = (r.seniorPwdId || r.discountCardId || r.discountIdRef || '').trim() || (discountType ? 'VERIFIED' : '');
 
+      // H-01 FIX: Validate discount ID reference format for data integrity
+      if (discountIdRef && discountIdRef !== 'VERIFIED' && discountType) {
+        const trimmed = discountIdRef.trim();
+
+        if (discountType === 'SENIOR') {
+          // Expected formats: SC-1234, PWD-1234, SENIOR-1234, S-1234, or just digits
+          if (!/^(SC|PWD|SENIOR|S\.?)-?\d{2,}$/i.test(trimmed) && !/^\d{4,}$/.test(trimmed)) {
+            console.warn(`[receipts] Unusual Senior/PWD ID format: "${trimmed}". Expected format: SC-XXXX or PWD-XXXX`);
+            // Don't reject, just log warning for audit
+          }
+        } else if (discountType === 'DC') {
+          // Expected format: DC-YYYY-XXXX or DC-XXXXXXXX
+          if (!/^DC-?\d{4,}$/i.test(trimmed) && !/^\d{6,}$/.test(trimmed)) {
+            console.warn(`[receipts] Unusual Discount Card format: "${trimmed}". Expected format: DC-XXXX-XXXX`);
+            // Don't reject, just log warning for audit
+          }
+        }
+
+        // Reject obviously garbage data
+        if (trimmed.length > 50) {
+          throw Object.assign(
+            new Error('Discount ID reference too long (max 50 characters)'),
+            { statusCode: 400 }
+          );
+        }
+        if (!/^[A-Za-z0-9\s.\-_]+$/.test(trimmed)) {
+          throw Object.assign(
+            new Error('Discount ID reference contains invalid characters. Only letters, numbers, spaces, dots, dashes, and underscores allowed.'),
+            { statusCode: 400 }
+          );
+        }
+      }
+
       if (paymentMethod === 'GCASH' || (paymentMethod === 'MIXED' && Number(r.gcashAmount) > 0)) {
         if (!gcashRef || !GCASH_REF_REGEX.test(gcashRef)) {
           throw Object.assign(new Error('GCash transaction reference must be exactly 13 digits.'), { statusCode: 400 });
+        }
+
+        // Check for uniqueness - prevent same GCash reference from being used multiple times
+        const existingGcash = await conn.query(
+          'SELECT receipt_no FROM receipts WHERE gcash_ref = ? AND payment_method IN (?, ?)',
+          [gcashRef, 'GCASH', 'MIXED']
+        );
+        if (existingGcash.rows.length > 0) {
+          throw Object.assign(
+            new Error(`GCash reference ${gcashRef} already used in receipt ${existingGcash.rows[0].receipt_no}. Each GCash transaction must have a unique reference.`),
+            { statusCode: 400 }
+          );
+        }
+
+        // Pattern detection - reject obviously fake references
+        const isSequential = /^(\d)\1{12}$/.test(gcashRef); // All same digit (e.g., "1111111111111")
+        const isSimplePattern = ['1234567890123', '0123456789012', '9876543210987'].includes(gcashRef);
+        if (isSequential || isSimplePattern) {
+          throw Object.assign(
+            new Error('GCash reference appears invalid (sequential or repeated pattern detected). Please verify the transaction reference.'),
+            { statusCode: 400 }
+          );
         }
       }
 
@@ -956,7 +1012,7 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
       let roomTier = 'Standard';
 
       if (roomNumber) {
-        const roomResult = await conn.query('SELECT * FROM rooms WHERE number = ?', [roomNumber]);
+        const roomResult = await conn.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [roomNumber]);
         if (roomResult.rows.length > 0) {
           roomRow = roomResult.rows[0];
 
@@ -1046,6 +1102,63 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
           const isOpenTime = roomRow.billing_mode === 'open_time';
           const isOvertimeWaived = Boolean(roomRow.overtime_waived || r.waiveOvertime);
 
+          // H-04 FIX: Validate overtime waiver authorization
+          if (isOvertimeWaived) {
+            // Only admin or owner can waive overtime charges
+            if (!['admin', 'owner'].includes(operator?.role)) {
+              throw Object.assign(
+                new Error('Only Admin or Owner can waive overtime charges. Please escalate to management.'),
+                { statusCode: 403 }
+              );
+            }
+
+            // Require detailed reason for waiver
+            const waiveReason = r.waiveReason || '';
+            if (!waiveReason || waiveReason.trim().length < 10) {
+              throw Object.assign(
+                new Error('Detailed reason (minimum 10 characters) required for overtime waiver.'),
+                { statusCode: 400 }
+              );
+            }
+
+            // Calculate what WOULD have been charged (for audit trail)
+            let wouldBeExcessHours = 0;
+            let wouldBeExcessCharge = 0;
+
+            if (isOpenTime) {
+              const baseEnd = roomRow.open_time_started_at
+                ? new Date(roomRow.open_time_started_at)
+                : (roomRow.expected_checkout_at ? new Date(roomRow.expected_checkout_at) : (roomRow.check_out_time ? new Date(roomRow.check_out_time) : new Date()));
+              const actualOutDate = new Date();
+              const elapsedAfterMs = Math.max(0, actualOutDate.getTime() - baseEnd.getTime());
+              const elapsedAfterMins = Math.floor(elapsedAfterMs / 60000);
+              const postGrace = 15;
+              if (elapsedAfterMins > postGrace) {
+                wouldBeExcessHours = Math.floor((elapsedAfterMins - postGrace) / 60) + 1;
+                wouldBeExcessCharge = wouldBeExcessHours * excessHourPrice;
+              }
+            } else if (roomRow.check_out_time && finalRateSelected !== 'custom') {
+              const actualOutDate = new Date();
+              wouldBeExcessHours = calculateExcessHours(roomRow.check_out_time, actualOutDate, 15);
+              wouldBeExcessCharge = wouldBeExcessHours * excessHourPrice;
+            }
+
+            // Audit log the waiver with full details
+            if (wouldBeExcessCharge > 0) {
+              const waiveAuditId = `log-waive-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+              await conn.query(
+                `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+                 VALUES (?, datetime('now', 'localtime'), ?, 'OVERTIME_WAIVED', ?)`,
+                [
+                  waiveAuditId,
+                  operator,
+                  `Waived ₱${wouldBeExcessCharge.toFixed(2)} (${wouldBeExcessHours}h overtime) for Room ${roomNumber}. ` +
+                  `Authorized by: ${operator} (${operator?.role}). Reason: ${waiveReason.trim()}`
+                ]
+              );
+            }
+          }
+
           if (isOpenTime) {
             // Open Time mode: base_end = T when open time started; elapsed_after = max(0, checkout_time - base_end)
             // overtime_hours = floor((elapsed_after - post) / 60) + 1 if elapsed_after > post, else 0
@@ -1065,13 +1178,35 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             }
           } else if (roomRow.check_out_time && finalRateSelected !== 'custom') {
             if (!isOvertimeWaived) {
-              const actualOutDate = r.checkOut ? new Date(r.checkOut) : new Date();
+              // ALWAYS use server time for actual checkout - NEVER trust client-provided checkOut time
+              const actualOutDate = new Date();
+
+              // Audit log if client provided checkOut time differs significantly from server time
+              if (r.checkOut) {
+                const clientProvided = new Date(r.checkOut);
+                if (!isNaN(clientProvided.getTime())) {
+                  const diffMs = Math.abs(actualOutDate.getTime() - clientProvided.getTime());
+                  if (diffMs > 300000) { // >5 minutes difference
+                    const auditId = `log-discrep-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+                    await conn.query(
+                      `INSERT INTO audit_logs (id, timestamp, operator, action, details)
+                       VALUES (?, datetime('now', 'localtime'), ?, 'CHECKOUT_TIME_DISCREPANCY', ?)`,
+                      [
+                        auditId,
+                        operator,
+                        `Client submitted checkOut ${clientProvided.toISOString()} but server time is ${actualOutDate.toISOString()} (diff: ${Math.round(diffMs / 1000)}s) for Room ${roomNumber}`
+                      ]
+                    );
+                  }
+                }
+              }
+
               excessHours = calculateExcessHours(roomRow.check_out_time, actualOutDate, 15);
               excessHoursCharge = excessHours * excessHourPrice;
             }
           }
 
-          let chargedFoodList: Array<{ item: { name: string; price: number }; quantity: number }> = [];
+          let chargedFoodList: Array<{ item: { name: string; price: number; id?: string }; quantity: number }> = [];
           if (roomRow.charged_food) {
             if (typeof roomRow.charged_food === 'string') {
               try {
@@ -1083,6 +1218,21 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             } else {
               chargedFoodList = roomRow.charged_food;
             }
+
+            // M-07 FIX: Deduplicate food items and sum quantities
+            const foodMap = new Map<string, { item: any; quantity: number }>();
+            for (const order of chargedFoodList) {
+              const key = order.item?.id || order.item?.name || JSON.stringify(order.item);
+              if (!key) continue;
+
+              const existing = foodMap.get(key);
+              if (existing) {
+                existing.quantity += Number(order.quantity || 1);
+              } else {
+                foodMap.set(key, { item: order.item, quantity: Number(order.quantity || 1) });
+              }
+            }
+            chargedFoodList = Array.from(foodMap.values());
           }
           foodCharges = chargedFoodList.reduce(
             (sum, order) => sum + Number(order.item?.price || 0) * Number(order.quantity || 1),
@@ -1142,7 +1292,7 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             }
           }
 
-          // Compute bill using integer centavos arithmetic
+          // Compute bill using integer centavos arithmetic with overflow protection
           const baseRateCentavos = Math.round(baseRate * 100);
           const bedsChargeCentavos = Math.round(bedsCharge * 100);
           const towelsChargeCentavos = Math.round(towelsCharge * 100);
@@ -1150,10 +1300,37 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
           const excessHoursChargeCentavos = Math.round(excessHoursCharge * 100);
           const foodChargesCentavos = Math.round(foodCharges * 100);
 
-          const subtotalCentavos = baseRateCentavos + bedsChargeCentavos + towelsChargeCentavos + extraPersonChargeCentavos + excessHoursChargeCentavos + foodChargesCentavos;
+          // Use safe addition with overflow detection (C-04 fix)
+          const subtotalCentavos = safeCentavosAdd(
+            baseRateCentavos,
+            bedsChargeCentavos,
+            towelsChargeCentavos,
+            extraPersonChargeCentavos,
+            excessHoursChargeCentavos,
+            foodChargesCentavos
+          );
+
+          // Validate reasonable bill limit (M-02 fix)
+          validateReasonableBill(subtotalCentavos, operator?.role || 'cashier', r.managerOverride);
+
           const totalCentavosBeforeDeposit = Math.max(0, subtotalCentavos - discountCentavos);
           appliedDepositCentavos = Math.min(appliedDepositCentavos, totalCentavosBeforeDeposit);
           const totalCentavos = Math.max(0, totalCentavosBeforeDeposit - appliedDepositCentavos);
+
+          // M-12 FIX: Validate base rate and total are reasonable
+          if (baseRateCentavos <= 0 && foodChargesCentavos === 0) {
+            throw Object.assign(
+              new Error('Cannot generate receipt with zero base rate and no food charges. Please verify room rate configuration.'),
+              { statusCode: 400 }
+            );
+          }
+
+          if (totalCentavos < 0) {
+            throw Object.assign(
+              new Error(`Cannot generate receipt with negative total: ₱${(totalCentavos / 100).toFixed(2)}. Check discount and deposit calculations.`),
+              { statusCode: 400 }
+            );
+          }
 
           subtotal = subtotalCentavos / 100;
           total = totalCentavos / 100;
@@ -1217,6 +1394,34 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
               amount: -(appliedDepositCentavos / 100),
             });
           }
+          // H-06 FIX: Check inventory stock BEFORE finalizing bill with food items
+          if (chargedFoodList.length > 0) {
+            for (const f of chargedFoodList) {
+              const itemId = String(f.item?.id || '').trim();
+              if (itemId) {
+                const stockRes = await conn.query(
+                  'SELECT current_stock FROM inventory WHERE id = ?',
+                  [itemId]
+                );
+
+                if (stockRes.rows.length > 0) {
+                  const currentStock = Number(stockRes.rows[0].current_stock || 0);
+                  const requiredQty = Number(f.quantity || 1);
+
+                  if (currentStock < requiredQty) {
+                    throw Object.assign(
+                      new Error(
+                        `Insufficient stock for "${f.item?.name || itemId}". ` +
+                        `Available: ${currentStock}, Required: ${requiredQty}. Cannot complete checkout.`
+                      ),
+                      { statusCode: 400 }
+                    );
+                  }
+                }
+              }
+            }
+          }
+
           chargedFoodList.forEach((f) => {
             items.push({
               description: f.item?.name || 'Food Order',
@@ -1228,8 +1433,8 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
       }
 
       if (!roomRow) {
-        // Direct POS receipt or walk-in sale — recompute securely
-        let computedSubtotal = 0;
+        // Direct POS receipt or walk-in sale — recompute securely using centavos
+        let computedSubtotalCentavos = 0;
         if (items && items.length > 0) {
           const serviceRows = await conn.query('SELECT id, price FROM billable_services');
           const priceMap = new Map<string, number>();
@@ -1244,32 +1449,64 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             }
             const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
             const actualPrice = priceMap.get(itemId)!;
+
+            // Use centavos arithmetic for POS items (100% accuracy fix)
+            const priceCentavos = Math.round(actualPrice * 100);
+            const itemTotalCentavos = priceCentavos * qty;
+            validateCentavos(itemTotalCentavos, `item ${itemId} total`);
+
             it.amount = actualPrice * qty;
-            computedSubtotal += it.amount;
+            computedSubtotalCentavos = safeCentavosAdd(computedSubtotalCentavos, itemTotalCentavos);
           }
         }
-        subtotal = computedSubtotal;
+        subtotal = computedSubtotalCentavos / 100;
         total = subtotal;
 
+        // Validate POS total is reasonable
+        validateReasonableBill(computedSubtotalCentavos, operator?.role || 'cashier', r.managerOverride);
+
         // Bug 3 fix: deduct stock for each POS item sold directly at counter
+        // H-06 FIX: Check stock BEFORE deducting (fail checkout if insufficient)
         if (items && items.length > 0) {
+          // First pass: Check all stock availability
+          for (const it of items) {
+            const itemId = String(it.item_id || it.id || '').trim();
+            if (!itemId) continue;
+
+            const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
+            const stockRes = await conn.query(
+              'SELECT current_stock FROM inventory WHERE id = ?',
+              [itemId]
+            );
+
+            if (stockRes.rows.length > 0) {
+              const currentStock = Number(stockRes.rows[0].current_stock || 0);
+              if (currentStock < qty) {
+                throw Object.assign(
+                  new Error(
+                    `Insufficient stock for POS item "${it.description || it.name || itemId}". ` +
+                    `Available: ${currentStock}, Required: ${qty}. Cannot complete sale.`
+                  ),
+                  { statusCode: 400 }
+                );
+              }
+            }
+          }
+
+          // Second pass: Deduct stock (only after all checks pass)
           const posOperator = operator?.username || 'Frontdesk';
           for (const it of items) {
-            if (!it.item_id && !it.id) continue; // skip items without an inventory id
+            if (!it.item_id && !it.id) continue;
             const itemId = String(it.item_id || it.id || '').trim();
             if (!itemId) continue;
             const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
-            try {
-              await inventoryService.atomicDecrementStock(
-                [{ item_id: itemId, quantity: qty, name: it.description || it.name || itemId }],
-                `POS-${receiptNo}`,
-                posOperator,
-                conn
-              );
-            } catch (invErr: any) {
-              // Non-blocking: log but don't abort the POS sale
-              console.warn(`[receipts] POS inventory deduct skipped for ${itemId}:`, invErr?.message);
-            }
+
+            await inventoryService.atomicDecrementStock(
+              [{ item_id: itemId, quantity: qty, name: it.description || it.name || itemId }],
+              `POS-${receiptNo}`,
+              posOperator,
+              conn
+            );
           }
         }
       }
@@ -1287,13 +1524,17 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
         if (r.cashAmount !== undefined && r.gcashAmount !== undefined) {
           cashAmount = Number(r.cashAmount);
           gcashAmount = Number(r.gcashAmount);
-          // M-08: Validate MIXED payment amounts sum to total using integer centavos
+          // C-05: Validate MIXED payment amounts sum to total using strict integer centavos validation
           const cashCentavos = Math.round(cashAmount * 100);
           const gcashCentavos = Math.round(gcashAmount * 100);
           const targetTotalCentavos = Math.round(total * 100);
-          if (cashCentavos + gcashCentavos !== targetTotalCentavos) {
+
+          // Use dedicated validation function with clear error messages
+          try {
+            validateSplitPaymentCentavos(cashCentavos, gcashCentavos, targetTotalCentavos);
+          } catch (err: any) {
             throw Object.assign(
-              new Error(`MIXED payment amounts (₱${cashAmount} + ₱${gcashAmount} = ₱${((cashCentavos + gcashCentavos) / 100).toFixed(2)}) do not equal total ₱${total.toFixed(2)}.`),
+              new Error(`MIXED payment validation failed: ${err.message}. Cash: ₱${cashAmount.toFixed(2)}, GCash: ₱${gcashAmount.toFixed(2)}, Total: ₱${total.toFixed(2)}`),
               { statusCode: 400 }
             );
           }
@@ -1356,13 +1597,20 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
       }
 
       // Compute total stay time consumed (server-side UTC diff, whole minutes floor)
+      // 100% ACCURACY: Always use server time for checkout, not client-provided time
       let consumedMinutes: number | null = null;
-      if (checkIn && checkOut) {
+      if (checkIn) {
         const cin = safeParseDate(checkIn);
-        const cout = safeParseDate(checkOut) || new Date();
+        // CRITICAL: Use server time for actual checkout, ignore client checkOut timestamp
+        const cout = new Date(); // Server time ONLY
         if (cin && cout) {
           const diffMs = cout.getTime() - cin.getTime();
           consumedMinutes = Math.max(0, Math.floor(diffMs / 60000));
+
+          // Validate consumed time is reasonable (max 7 days = 10080 minutes)
+          if (consumedMinutes > 10080) {
+            console.warn(`[receipts] Unusually long stay: ${consumedMinutes} minutes (${Math.floor(consumedMinutes / 60)} hours) for Room ${roomNumber}`);
+          }
         }
       }
 
@@ -1447,8 +1695,8 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
         const action = r.depositResolution.action;
         const depAmountCents = Number(heldDepositRow.amount_cents || 0);
         const targetStatus = action === 'apply' ? 'applied' : action === 'refund' ? 'refunded' : 'forfeited';
-        const refundAmountCents = action === 'refund' ? depAmountCents : 0;
-        const appliedAmountCents = action === 'apply' ? depAmountCents : 0;
+        const refundAmountCents = action === 'apply' ? Math.max(0, depAmountCents - appliedDepositCentavos) : (action === 'refund' ? depAmountCents : 0);
+        const appliedAmountCents = action === 'apply' ? appliedDepositCentavos : 0;
         const nowIso = new Date().toISOString();
 
         const resolutionSnapshot = {
@@ -1502,8 +1750,11 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
       }
 
       // 2. If room checkout, transition room state to 'available' (Cleaning mode removed)
+      // H-05 FIX: Use optimistic locking to prevent concurrent checkout race conditions
       if (roomNumber) {
-        await conn.query(
+        const preCheckoutTimestamp = roomRow.updated_at;
+
+        const updateResult = await conn.query(
           `UPDATE rooms SET
             state = 'available', label = 'Available', guest_name = '', guest_id = '',
             num_guests = 0, rate_selected = '24h', custom_hours = NULL, extra_beds = 0, towel_sets = 0,
@@ -1516,9 +1767,19 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
             snoozed_until = NULL, repeat_count = 0, overtime_waived = 0,
             allocated_receipt_no = NULL,
             updated_at = NOW()
-           WHERE number = ?`,
-          [roomNumber]
+           WHERE number = ?
+             AND state IN ('occupied', 'overdue')
+             AND updated_at = ?`,
+          [roomNumber, preCheckoutTimestamp]
         );
+
+        // If no rows updated, room state changed during checkout (race condition detected)
+        if (updateResult.affectedRows === 0) {
+          throw Object.assign(
+            new Error(`Room ${roomNumber} state changed during checkout. Another session may have already processed this checkout. Please refresh and verify room status.`),
+            { statusCode: 409 }
+          );
+        }
 
         // 3. Write audit log (Constraint 7: server-derived operator)
         const logId = `log-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1552,9 +1813,7 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
           await conn.query(
             `INSERT INTO pos_revenue (date, kitchen, drinks, miscell)
              VALUES (?, ?, 0, 0)
-             ON DUPLICATE KEY UPDATE
-               kitchen = kitchen + VALUES(kitchen),
-               updated_at = NOW()`,
+             ON CONFLICT (date) DO UPDATE SET kitchen = pos_revenue.kitchen + EXCLUDED.kitchen, updated_at = NOW()`,
             [today, foodCharges]
           );
         }
@@ -1596,7 +1855,7 @@ router.post('/', requireCashierStaff, asyncHandler(async (req: Request, res: Res
         if (aggAttempt === 3) {
           try {
             await pool.query(
-              `INSERT INTO audit_logs (id, timestamp, operator, action, details) VALUES (?, datetime('now','localtime'), ?, 'WEEKLY_AGGREGATE_FAILED', ?)`,
+              `INSERT INTO audit_logs (id, timestamp, operator, action, details) VALUES (?, CURRENT_TIMESTAMP, ?, 'WEEKLY_AGGREGATE_FAILED', ?)`,
               [`log-aggfail-${Date.now()}`, receipt.cashierId || 'system', `Receipt ${receipt.receiptNo} committed but weekly aggregation failed 3x — needs backfill. Total: ${receipt.total}`]
             );
           } catch { /* audit best-effort */ }
@@ -1795,7 +2054,7 @@ router.post('/void-preprint', requireCashierStaff, asyncHandler(async (req: Requ
     let roomRow: any = null;
 
     if (roomNumber) {
-      const roomRes = await conn.query('SELECT * FROM rooms WHERE number = ?', [String(roomNumber).trim()]);
+      const roomRes = await conn.query('SELECT * FROM rooms WHERE number = ? FOR UPDATE', [String(roomNumber).trim()]);
       if (roomRes.rows.length > 0) {
         roomRow = roomRes.rows[0];
         if (!targetReceiptNo && roomRow.allocated_receipt_no) {
@@ -1859,7 +2118,7 @@ router.post('/void-preprint', requireCashierStaff, asyncHandler(async (req: Requ
     const auditId = `audit-voidpre-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
     await conn.query(
       `INSERT INTO audit_logs (id, timestamp, operator, action, details)
-       VALUES (?, datetime('now', 'localtime'), ?, 'PREPRINT_VOIDED', ?)`,
+       VALUES (?, CURRENT_TIMESTAMP, ?, 'PREPRINT_VOIDED', ?)`,
       [
         auditId,
         operator,
@@ -1875,4 +2134,8 @@ router.post('/void-preprint', requireCashierStaff, asyncHandler(async (req: Requ
 }));
 
 export default router;
+
+
+
+
 
