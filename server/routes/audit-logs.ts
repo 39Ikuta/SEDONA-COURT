@@ -36,19 +36,33 @@ router.get('/', requireAdmin, asyncHandler(async (_req: Request, res: Response) 
 
 // POST /api/audit-logs
 router.post('/', requireAuth, asyncHandler(async (req: Request, res: Response) => {
-  const log = req.body;
-  const id = log.id || `log-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-  const timestamp = log.timestamp || new Date().toISOString();
+  const log = req.body || {};
+  // Server-derived id/timestamp — never trust client values (forgery/flooding fix)
+  const id = `log-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const timestamp = new Date().toISOString();
   // Server-derived operator identity — prevent client spoofing
   const operator = (req as any).operator?.username || (req as any).operator?.name || 'System';
+  const allowedActions = new Set([
+    'CHECKOUT', 'DISCOUNT_APPLIED', 'POS_SALE', 'DEPOSIT_RESOLVED', 'DEPOSIT_RECORDED',
+    'RECEIPT_REPRINTED', 'RECEIPT_VOIDED', 'PREPRINT_VOIDED', 'EXPENSE_CREATED', 'EXPENSE_DELETED',
+    'ROOM_TRANSFER', 'FORCE_CHECKOUT_REQUESTED', 'FORCE_CHECKOUT_APPROVED', 'FORCE_CHECKOUT_REJECTED',
+    'DIRECT_FORCE_CHECKOUT', 'EXPORT_GENERATED', 'USER_CREATED', 'USER_DELETED', 'SEQUENCE_UPDATED',
+    'CLIENT_NOTE',
+  ]);
+  const action = String(log.action || 'CLIENT_NOTE').slice(0, 64);
+  if (!allowedActions.has(action)) {
+    res.status(400).json({ error: `Invalid audit action: ${action}.` });
+    return;
+  }
+  const details = String(log.details || '').slice(0, 2000);
 
   try {
     await pool.query(
-      `INSERT OR IGNORE INTO audit_logs (id, timestamp, operator, action, details)
+      `INSERT INTO audit_logs (id, timestamp, operator, action, details)
        VALUES (?, ?, ?, ?, ?)`,
-      [id, timestamp, operator, log.action, log.details]
+      [id, timestamp, operator, action, details]
     );
-    const row = { id, timestamp, operator, action: log.action, details: log.details };
+    const row = { id, timestamp, operator, action, details };
     res.status(201).json(rowToLog(row));
   } catch (err) {
     console.error('POST /audit-logs error:', err);

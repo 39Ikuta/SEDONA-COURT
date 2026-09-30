@@ -14,6 +14,12 @@ if (!JWT_SECRET) {
     'Example: JWT_SECRET=$(openssl rand -base64 48)'
   );
 }
+if (JWT_SECRET.length < 32 || ['123', 'secret', 'password', 'changeme', 'test'].includes(JWT_SECRET.toLowerCase())) {
+  throw new Error(
+    'FATAL: JWT_SECRET is too weak (min 32 random chars). ' +
+    'Generate a strong secret: JWT_SECRET=$(openssl rand -base64 48)'
+  );
+}
 const DEFAULT_EXPIRY_SECONDS = 14 * 60 * 60; // 14 hours (shift-based kiosk)
 
 export interface JwtPayload {

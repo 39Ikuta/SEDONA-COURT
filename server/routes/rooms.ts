@@ -9,11 +9,64 @@ import { asyncHandler } from '../utils/async-handler';
 
 import { Router, Request, Response } from 'express';
 import { pool, withTransaction } from '../db/pool';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireCashierStaff } from '../middleware/auth';
 import { socketManager } from '../websocket/socket-manager';
 
 import { INITIAL_ROOMS } from '../../src/data';
-import { isMidnightPromoAllowed } from '../utils/pricing';
+import { isMidnightPromoAllowed, calculateExpectedCheckout } from '../utils/pricing';
+import {
+  getAlarmSettings,
+  updateAlarmSettings,
+  computeAlarmState,
+  acknowledgeAlarm,
+  extendStay,
+  snoozeAlarm,
+  switchToOpenTime,
+  waiveOvertime,
+  AlarmState,
+} from '../services/alarm-service';
+import { analyticsService } from '../services/analytics-service';
+
+export function getMaxRoomCapacity(roomType: string, tier: string): number {
+  const typeLower = (roomType || '').toLowerCase();
+  const tierLower = (tier || '').toLowerCase();
+
+  if (typeLower.includes('vip') || typeLower.includes('suite') || tierLower === 'suite') {
+    return 6;
+  }
+  if (typeLower.includes('premium') || typeLower.includes('deluxe') || tierLower === 'deluxe') {
+    return 5;
+  }
+  return 4; // Classic Room / Standard
+}
+
+export function validateRoomPersons(
+  persons: number,
+  roomType: string,
+  tier: string
+): { valid: boolean; error?: string; persons: number; extraPersons: number } {
+  const p = Math.max(1, Math.round(Number(persons) || 2));
+  const maxCapacity = getMaxRoomCapacity(roomType, tier);
+
+  if (p < 1) {
+    return { valid: false, error: 'Guest count must be at least 1 person.', persons: 2, extraPersons: 0 };
+  }
+
+  if (p > maxCapacity) {
+    return {
+      valid: false,
+      error: `Maximum occupancy for ${roomType || 'this room'} is ${maxCapacity} persons (Base 2 + up to ${maxCapacity - 2} extra). Provided: ${p} persons.`,
+      persons: p,
+      extraPersons: Math.max(0, p - 2),
+    };
+  }
+
+  return {
+    valid: true,
+    persons: p,
+    extraPersons: Math.max(0, p - 2),
+  };
+}
 
 const router = Router();
 
@@ -31,13 +84,56 @@ function rowToRoom(row: any) {
     }
   }
 
+  const checkInRaw = row.check_in_at || row.check_in_time;
+  let expectedCheckoutRaw = row.expected_checkout_at || row.check_out_time;
+  const billingMode = (row.billing_mode || 'standard') as 'standard' | 'open_time';
+
+  // Add expected_checkout_at if missing: check_in_at + booked duration (Task 1)
+  if (!expectedCheckoutRaw && checkInRaw && (row.state === 'occupied' || row.state === 'overdue') && billingMode !== 'open_time') {
+    const parsedIn = new Date(checkInRaw);
+    if (!isNaN(parsedIn.getTime())) {
+      const calc = calculateExpectedCheckout(row.rate_selected || '24h', parsedIn, row.custom_hours);
+      expectedCheckoutRaw = calc.toISOString();
+    }
+  }
+
+  const checkInAt = checkInRaw ? new Date(checkInRaw).toISOString() : undefined;
+  const expectedCheckoutAt = expectedCheckoutRaw ? new Date(expectedCheckoutRaw).toISOString() : undefined;
+
+  // Compute time string and open-time badge
+  let timeStr = 'READY';
+  if (row.room_type === 'Staff House' || String(row.number) === '12') {
+    timeStr = 'STAFF';
+  } else if (billingMode === 'open_time') {
+    const startMs = row.open_time_started_at
+      ? new Date(row.open_time_started_at).getTime()
+      : (checkInRaw ? new Date(checkInRaw).getTime() : Date.now());
+    const elapsedMs = Math.max(0, Date.now() - startMs);
+    const h = Math.floor(elapsedMs / 3600000);
+    const m = Math.floor((elapsedMs % 3600000) / 60000);
+    timeStr = `Open time · ${h}h ${m}m`;
+  } else if (row.check_out_time || expectedCheckoutAt) {
+    const checkoutTimeVal = expectedCheckoutAt || row.check_out_time;
+    const diff = new Date(checkoutTimeVal).getTime() - Date.now();
+    if (diff > 0) {
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    } else {
+      const od = Math.abs(diff);
+      const h = Math.floor(od / 3600000);
+      const m = Math.floor((od % 3600000) / 60000);
+      timeStr = h > 0 ? `+${h}h ${m}m` : `+${m}m`;
+    }
+  }
+
   return {
     number: String(row.number),
     tier: row.tier,
     floor: Number(row.floor),
     roomType: row.room_type,
     state: row.state,
-    label: row.label,
+    label: billingMode === 'open_time' ? (row.label && row.label !== 'Available' ? row.label : timeStr) : row.label,
     guestName: row.guest_name || '',
     guestId: row.guest_id || '',
     numGuests: Number(row.num_guests || 0),
@@ -45,32 +141,29 @@ function rowToRoom(row: any) {
     customHours: row.custom_hours ? Number(row.custom_hours) : undefined,
     extraBeds: Number(row.extra_beds || 0),
     towelSets: Number(row.towel_sets || 0),
-    checkInTime: row.check_in_time ? new Date(row.check_in_time).toISOString() : undefined,
-    checkOutTime: row.check_out_time ? new Date(row.check_out_time).toISOString() : undefined,
+    checkInTime: checkInAt,
+    checkOutTime: expectedCheckoutAt,
+    checkInAt,
+    expectedCheckoutAt,
+    alarmState: (row.alarm_state as AlarmState) || 'NORMAL',
+    acknowledgedAt: row.acknowledged_at ? new Date(row.acknowledged_at).toISOString() : undefined,
+    acknowledgedBy: row.acknowledged_by || undefined,
     isOverdue: Boolean(row.is_overdue),
+    billingMode,
+    openTimeStartedAt: row.open_time_started_at ? new Date(row.open_time_started_at).toISOString() : undefined,
+    snoozedUntil: row.snoozed_until ? new Date(row.snoozed_until).toISOString() : undefined,
+    repeatCount: Number(row.repeat_count || 0),
+    overtimeWaived: Boolean(row.overtime_waived),
+    overtimeWaivedBy: row.overtime_waived_by || undefined,
+    overtimeWaivedReason: row.overtime_waived_reason || undefined,
     chargedFood: chargedFood,
     discountType: (row.discount_type || 'NONE') as 'NONE' | 'SENIOR' | 'DC',
     discountIdRef: row.discount_id_ref || '',
+    allocatedReceiptNo: row.allocated_receipt_no || undefined,
     forceCheckoutPending: Boolean(row.fcr_id),
     forceCheckoutRequestId: row.fcr_id || undefined,
     isStaffHouse: Boolean(row.room_type === 'Staff House' || String(row.number) === '12'),
-    // time is computed client-side from checkOutTime, not stored
-    time: (row.room_type === 'Staff House' || String(row.number) === '12')
-      ? 'STAFF'
-      : row.check_out_time
-      ? (() => {
-          const diff = new Date(row.check_out_time).getTime() - Date.now();
-          if (diff > 0) {
-            const h = Math.floor(diff / 3600000);
-            const m = Math.floor((diff % 3600000) / 60000);
-            return h > 0 ? `${h}h ${m}m` : `${m}m`;
-          }
-          const od = Math.abs(diff);
-          const h = Math.floor(od / 3600000);
-          const m = Math.floor((od % 3600000) / 60000);
-          return h > 0 ? `+${h}h ${m}m` : `+${m}m`;
-        })()
-      : 'READY',
+    time: timeStr,
   };
 }
 
@@ -92,7 +185,7 @@ router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) =
 }));
 
 // PUT /api/rooms/:number
-router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.put('/:number', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
   const { number } = req.params;
   const room = req.body;
   const operator = (req as any).operator;
@@ -107,14 +200,47 @@ router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Respo
   }
 
   try {
+    const isOccupiedState = room.state === 'occupied' || room.state === 'overdue';
+    let checkInIso: string | null = null;
+    let expectedCheckoutIso: string | null = null;
+    const settings = await getAlarmSettings();
+    let nextAlarmState: AlarmState = 'NORMAL';
+    let isOverdueVal = Boolean(room.isOverdue);
     const chargedFoodStr = JSON.stringify(room.chargedFood || []);
+
+    if (isOccupiedState) {
+      const rawIn = room.checkInAt || room.check_in_at || room.checkInTime || room.check_in_time;
+      if (rawIn) {
+        const d = new Date(rawIn);
+        checkInIso = !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+      } else {
+        checkInIso = new Date().toISOString();
+      }
+
+      const rawOut = room.expectedCheckoutAt || room.expected_checkout_at || room.checkOutTime || room.check_out_time;
+      if (rawOut) {
+        const d = new Date(rawOut);
+        expectedCheckoutIso = !isNaN(d.getTime()) ? d.toISOString() : null;
+      }
+
+      if (!expectedCheckoutIso && checkInIso) {
+        const customH = room.customHours || (rateSelected === 'custom' ? (room.custom_hours || 1) : null);
+        const exp = calculateExpectedCheckout(rateSelected || '24h', new Date(checkInIso), customH);
+        expectedCheckoutIso = exp.toISOString();
+      }
+
+      if (expectedCheckoutIso) {
+        nextAlarmState = computeAlarmState(expectedCheckoutIso, Date.now(), settings);
+        isOverdueVal = nextAlarmState === 'OVERDUE' || nextAlarmState === 'DUE';
+      }
+    }
 
     // Room update + bed/towel stock consume run in one atomic transaction:
     // only newly assigned extras are deducted, and a stock shortage rolls
     // the entire update back (HTTP 400) instead of checking in without stock.
-    const updatedRoom = await withTransaction(async (conn) => {
+    const { updatedRoom, prevAlarmState } = await withTransaction(async (conn) => {
       const stored = await conn.query(
-        'SELECT extra_beds, towel_sets, state, charged_food FROM rooms WHERE number = ?',
+        'SELECT extra_beds, towel_sets, state, charged_food, alarm_state FROM rooms WHERE number = ?',
         [number]
       );
       if (stored.rows.length === 0) {
@@ -123,68 +249,101 @@ router.put('/:number', requireAuth, asyncHandler(async (req: Request, res: Respo
         throw notFound;
       }
 
-      const prevBeds = Number(stored.rows[0].extra_beds || 0);
-      const prevTowels = Number(stored.rows[0].towel_sets || 0);
       const prevState: string = stored.rows[0].state || 'available';
-      const nextBeds = Number(room.extraBeds || 0);
-      const nextTowels = Number(room.towelSets || 0);
+      const prevAlarmState: AlarmState = stored.rows[0].alarm_state || 'NORMAL';
 
+      // Section 11: Validate check-in persons & capacity limits
+      const roomType = room.roomType || stored.rows[0].room_type || '';
+      const tier = room.tier || stored.rows[0].tier || '';
+      const rawNumGuests = room.numGuests != null ? Number(room.numGuests) : (isOccupiedState ? 2 : 0);
+      const personValidation = validateRoomPersons(rawNumGuests, roomType, tier);
+      if (!personValidation.valid && isOccupiedState) {
+        throw Object.assign(new Error(personValidation.error), { statusCode: 400 });
+      }
+      const finalNumGuests = isOccupiedState ? personValidation.persons : 0;
 
-      // Bug 2 fix: Deduct 1 guest kit when a room first becomes occupied (check-in)
+      // Deduct 1 guest kit when a room first becomes occupied (check-in)
       const isNewCheckIn = prevState !== 'occupied' && prevState !== 'overdue' && room.state === 'occupied';
-      // (inventory decrement was handled by kitchen service; no duplicate call here)
 
+      const allocatedReceiptNo = isOccupiedState
+        ? (room.allocatedReceiptNo !== undefined ? (room.allocatedReceiptNo || null) : (stored.rows[0].allocated_receipt_no || null))
+        : null;
 
       await conn.query(
         `UPDATE rooms SET
           state = ?, label = ?, guest_name = ?, guest_id = ?,
           num_guests = ?, rate_selected = ?, custom_hours = ?, extra_beds = ?,
           towel_sets = ?, check_in_time = ?, check_out_time = ?,
-          is_overdue = ?, charged_food = ?, discount_type = ?, discount_id_ref = ?, updated_at = NOW()
+          check_in_at = ?, expected_checkout_at = ?, alarm_state = ?,
+          acknowledged_at = CASE WHEN ? = 1 THEN NULL ELSE acknowledged_at END,
+          acknowledged_by = CASE WHEN ? = 1 THEN NULL ELSE acknowledged_by END,
+          is_overdue = ?, charged_food = ?, discount_type = ?, discount_id_ref = ?,
+          allocated_receipt_no = ?, updated_at = NOW()
          WHERE number = ?`,
         [
-          room.state,
+          isOccupiedState && (nextAlarmState === 'OVERDUE' || nextAlarmState === 'DUE') ? 'overdue' : room.state,
           room.label || 'Available',
           room.guestName || '',
           room.guestId || '',
-          room.numGuests || 0,
+          finalNumGuests,
           room.rateSelected || '24h',
           room.customHours || (room.rateSelected === 'custom' ? (room.custom_hours || 1) : null),
           room.extraBeds || 0,
           room.towelSets || 0,
-          room.checkInTime || null,
-          room.checkOutTime || null,
-          room.isOverdue || false,
+          checkInIso,
+          expectedCheckoutIso,
+          checkInIso,
+          expectedCheckoutIso,
+          nextAlarmState,
+          isNewCheckIn || !isOccupiedState ? 1 : 0,
+          isNewCheckIn || !isOccupiedState ? 1 : 0,
+          isOverdueVal ? 1 : 0,
           chargedFoodStr,
           room.discountType || 'NONE',
           room.discountIdRef || '',
+          allocatedReceiptNo,
           number,
         ]
       );
 
       const checkResult = await conn.query('SELECT * FROM rooms WHERE number = ?', [number]);
-      return rowToRoom(checkResult.rows[0]);
+      return { updatedRoom: rowToRoom(checkResult.rows[0]), prevAlarmState };
     });
     
     // Broadcast room update via WebSocket
     socketManager.broadcastRoomUpdate({
       roomNumber: number,
-      state: room.state,
-      guestName: room.guestName,
-      checkInTime: room.checkInTime,
-      checkOutTime: room.checkOutTime,
+      state: updatedRoom.state,
+      label: updatedRoom.label,
+      guestName: updatedRoom.guestName,
+      checkInTime: updatedRoom.checkInTime,
+      checkOutTime: updatedRoom.checkOutTime,
+      checkInAt: updatedRoom.checkInAt,
+      expectedCheckoutAt: updatedRoom.expectedCheckoutAt,
+      alarmState: updatedRoom.alarmState,
+      acknowledgedAt: updatedRoom.acknowledgedAt,
+      acknowledgedBy: updatedRoom.acknowledgedBy,
+      billingMode: updatedRoom.billingMode,
+      snoozedUntil: updatedRoom.snoozedUntil,
+      repeatCount: updatedRoom.repeatCount,
+      overtimeWaived: updatedRoom.overtimeWaived,
       timestamp: new Date().toISOString(),
     });
     
-    // If room just became overdue, broadcast alarm
-    if (room.state === 'overdue' && room.isOverdue) {
-      socketManager.broadcastAlarm({
+    // If alarm state changed, broadcast state machine transition event
+    if (prevAlarmState !== updatedRoom.alarmState) {
+      socketManager.broadcastAlarmStateChanged({
         roomNumber: number,
-        alarmType: 'checkout',
-        guestName: room.guestName,
+        previousState: prevAlarmState,
+        newState: updatedRoom.alarmState,
+        expectedCheckoutAt: updatedRoom.expectedCheckoutAt,
+        acknowledgedAt: updatedRoom.acknowledgedAt,
+        acknowledgedBy: updatedRoom.acknowledgedBy,
         timestamp: new Date().toISOString(),
       });
     }
+
+    analyticsService.notifyGuestCountsUpdated().catch(console.warn);
     
     res.json(updatedRoom);
   } catch (err: any) {
@@ -199,6 +358,11 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
   const operator = (req as any).operator;
   if (operator.role !== 'admin' && operator.role !== 'owner') {
     res.status(403).json({ error: 'Only admin or owner can reset the database' });
+    return;
+  }
+  const confirm = String((req.body as any)?.confirm || req.query.confirm || '');
+  if (confirm !== 'RESET-ALL-DATA') {
+    res.status(400).json({ error: "Confirmation required: send { confirm: 'RESET-ALL-DATA' }." });
     return;
   }
   try {
@@ -216,6 +380,7 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
       await conn.query('DELETE FROM force_checkout_requests');
       await conn.query('DELETE FROM room_transfers');
       await conn.query('DELETE FROM deposit_transactions');
+      await conn.query('DELETE FROM deposits');
       await conn.query('DELETE FROM inventory_events');
       await conn.query('DELETE FROM shift_expenses');
       await conn.query('DELETE FROM discount_rates');
@@ -227,7 +392,13 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
             state = ?, label = ?, guest_name = ?, guest_id = ?,
             num_guests = ?, rate_selected = ?, extra_beds = ?,
             towel_sets = ?, check_in_time = ?, check_out_time = ?,
-            is_overdue = ?, charged_food = ?, discount_type = 'NONE', discount_id_ref = '', updated_at = NOW()
+            check_in_at = NULL, expected_checkout_at = NULL,
+            alarm_state = 'NORMAL', acknowledged_at = NULL, acknowledged_by = NULL,
+            is_overdue = ?, charged_food = ?, discount_type = 'NONE', discount_id_ref = '',
+            allocated_receipt_no = NULL,
+            billing_mode = 'standard', open_time_started_at = NULL, last_reminder_at = NULL,
+            snoozed_until = NULL, repeat_count = 0, overtime_waived = 0, overtime_waived_by = NULL,
+            overtime_waived_reason = NULL, updated_at = NOW()
            WHERE number = ?`,
           [
             room.state, room.label, room.guestName || '', room.guestId || '',
@@ -238,6 +409,10 @@ router.post('/reset', requireAuth, asyncHandler(async (req: Request, res: Respon
         );
       }
       const res = await conn.query('SELECT * FROM rooms ORDER BY CAST(number AS INTEGER) ASC');
+      await conn.query(
+        `INSERT INTO audit_logs (id, timestamp, operator, action, details) VALUES (?, datetime('now','localtime'), ?, 'ROOMS_RESET', ?)`,
+        [`log-reset-${Date.now()}`, operator.username, `Board reset by ${operator.username}: wiped receipts/deposits/shifts/expenses and restored ${INITIAL_ROOMS.length} rooms`]
+      ).catch((e: any) => console.warn('reset audit failed', e));
       return res.rows;
     });
     
@@ -277,7 +452,7 @@ router.get('/transfers', requireAuth, asyncHandler(async (req: Request, res: Res
 }));
 
 // POST /api/rooms/transfer — execute guest room relocation atomically
-router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/transfer', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
   const operator = (req as any).operator;
   const operatorName = operator?.name || operator?.username || 'Frontdesk';
   const {
@@ -317,7 +492,7 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
         throw err;
       }
 
-      // 2. Fetch Target Room
+      // 2. Fetch Target Room — must be available
       const targetResult = await conn.query('SELECT * FROM rooms WHERE number = ?', [String(targetRoomNumber)]);
       if (targetResult.rows.length === 0) {
         const err: any = new Error(`Target Room ${targetRoomNumber} not found`);
@@ -325,8 +500,8 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
         throw err;
       }
       const target = targetResult.rows[0];
-      if (target.state !== 'available' && target.state !== 'clean') {
-        const err: any = new Error(`Target Room ${targetRoomNumber} is currently ${target.state.toUpperCase()}. Please select an available or clean room.`);
+      if (target.state !== 'available') {
+        const err: any = new Error(`Target Room ${targetRoomNumber} is currently ${target.state.toUpperCase()}. Please select an available room.`);
         err.statusCode = 400;
         throw err;
       }
@@ -359,7 +534,10 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
         ]
       );
 
-      // 4. Update Target Room to OCCUPIED with all guest stay data
+      const checkInVal = source.check_in_at || source.check_in_time;
+      const expectedCheckoutVal = source.expected_checkout_at || source.check_out_time;
+
+      // 4. Update Target Room to OCCUPIED with all guest stay data including alarm state, billing mode, and allocated_receipt_no
       await conn.query(
         `UPDATE rooms SET
           state = 'occupied',
@@ -373,10 +551,24 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
           towel_sets = ?,
           check_in_time = ?,
           check_out_time = ?,
+          check_in_at = ?,
+          expected_checkout_at = ?,
+          alarm_state = ?,
+          acknowledged_at = ?,
+          acknowledged_by = ?,
           is_overdue = ?,
+          billing_mode = ?,
+          open_time_started_at = ?,
+          last_reminder_at = ?,
+          snoozed_until = ?,
+          repeat_count = ?,
+          overtime_waived = ?,
+          overtime_waived_by = ?,
+          overtime_waived_reason = ?,
           charged_food = ?,
           discount_type = ?,
           discount_id_ref = ?,
+          allocated_receipt_no = ?,
           updated_at = NOW()
         WHERE number = ?`,
         [
@@ -388,21 +580,35 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
           source.custom_hours || null,
           source.extra_beds || 0,
           source.towel_sets || 0,
-          source.check_in_time || null,
-          source.check_out_time || null,
+          checkInVal || null,
+          expectedCheckoutVal || null,
+          checkInVal || null,
+          expectedCheckoutVal || null,
+          source.alarm_state || 'NORMAL',
+          source.acknowledged_at || null,
+          source.acknowledged_by || null,
           source.is_overdue || false,
+          source.billing_mode || 'standard',
+          source.open_time_started_at || null,
+          source.last_reminder_at || null,
+          source.snoozed_until || null,
+          source.repeat_count || 0,
+          source.overtime_waived || 0,
+          source.overtime_waived_by || null,
+          source.overtime_waived_reason || null,
           chargedFoodStr,
           source.discount_type || 'NONE',
           source.discount_id_ref || '',
+          source.allocated_receipt_no || null,
           String(targetRoomNumber),
         ]
       );
 
-      // 5. Reset Source Room to CLEANING (dirty turnover for housekeeping)
+      // 5. Reset Source Room directly to AVAILABLE
       await conn.query(
         `UPDATE rooms SET
-          state = 'cleaning',
-          label = 'Turnover / Cleaning',
+          state = 'available',
+          label = 'Available',
           guest_name = '',
           guest_id = '',
           num_guests = 0,
@@ -412,10 +618,24 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
           towel_sets = 0,
           check_in_time = NULL,
           check_out_time = NULL,
+          check_in_at = NULL,
+          expected_checkout_at = NULL,
+          alarm_state = 'NORMAL',
+          acknowledged_at = NULL,
+          acknowledged_by = NULL,
           is_overdue = 0,
           charged_food = '[]',
           discount_type = 'NONE',
           discount_id_ref = '',
+          allocated_receipt_no = NULL,
+          billing_mode = 'standard',
+          open_time_started_at = NULL,
+          last_reminder_at = NULL,
+          snoozed_until = NULL,
+          repeat_count = 0,
+          overtime_waived = 0,
+          overtime_waived_by = NULL,
+          overtime_waived_reason = NULL,
           updated_at = NOW()
         WHERE number = ?`,
         [String(sourceRoomNumber)]
@@ -475,6 +695,7 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
       state: updatedSource.state,
       label: updatedSource.label,
       guestName: '',
+      billingMode: 'standard',
       timestamp: new Date().toISOString(),
     });
 
@@ -485,6 +706,8 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
       guestName: updatedTarget.guestName,
       checkInTime: updatedTarget.checkInTime,
       checkOutTime: updatedTarget.checkOutTime,
+      billingMode: updatedTarget.billingMode,
+      openTimeStartedAt: updatedTarget.openTimeStartedAt,
       timestamp: new Date().toISOString(),
     });
 
@@ -507,5 +730,108 @@ router.post('/transfer', requireAuth, asyncHandler(async (req: Request, res: Res
   }
 }));
 
-export default router;
+// POST /api/rooms/:number/alarm/ack — acknowledge overdue alert (idempotent, role-checked)
+router.post('/:number/alarm/ack', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const { number } = req.params;
+  const operator = (req as any).operator;
+  if (!operator || !['cashier', 'admin', 'owner'].includes(operator.role)) {
+    return res.status(403).json({ error: 'Unauthorized role for alarm acknowledgment' });
+  }
 
+  const operatorUsername = operator.username || operator.name || 'Frontdesk';
+  const result = await acknowledgeAlarm(number, operatorUsername);
+  res.json(result);
+}));
+
+// POST /api/rooms/:number/extend — extend stay (role-checked, server-side calculated)
+router.post('/:number/extend', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const { number } = req.params;
+  const operator = (req as any).operator;
+  if (!operator || !['cashier', 'admin', 'owner'].includes(operator.role)) {
+    return res.status(403).json({ error: 'Unauthorized role for stay extension' });
+  }
+
+  const { hours, rateSelected, customHours } = req.body;
+  const operatorUsername = operator.username || operator.name || 'Frontdesk';
+  const result = await extendStay(number, { hours, rateSelected, customHours }, operatorUsername);
+  res.json(result);
+}));
+
+// POST /api/rooms/:number/snooze — snooze alarm for snooze_minutes
+router.post('/:number/snooze', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const { number } = req.params;
+  const operator = (req as any).operator;
+  if (!operator || !['cashier', 'admin', 'owner'].includes(operator.role)) {
+    return res.status(403).json({ error: 'Unauthorized role for alarm snooze' });
+  }
+
+  const operatorUsername = operator.username || operator.name || 'Frontdesk';
+  const result = await snoozeAlarm(number, operatorUsername);
+  res.json(result);
+}));
+
+// POST /api/rooms/:number/open-time — switch room to open-time billing mode
+router.post('/:number/open-time', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const { number } = req.params;
+  const { reason = '' } = req.body;
+  const operator = (req as any).operator;
+  if (!operator || !['cashier', 'admin', 'owner'].includes(operator.role)) {
+    return res.status(403).json({ error: 'Unauthorized role for open time switch' });
+  }
+
+  const operatorUsername = operator.username || operator.name || 'Frontdesk';
+  const result = await switchToOpenTime(number, operatorUsername, reason);
+  res.json(result);
+}));
+
+// POST /api/rooms/:number/waive-overtime — waive overtime charges for room
+router.post('/:number/waive-overtime', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const { number } = req.params;
+  const { reason = '' } = req.body;
+  const operator = (req as any).operator;
+  if (!operator || !['cashier', 'admin', 'owner'].includes(operator.role)) {
+    return res.status(403).json({ error: 'Unauthorized role for waiving overtime' });
+  }
+
+  const operatorUsername = operator.username || operator.name || 'Frontdesk';
+  const result = await waiveOvertime(number, operatorUsername, reason);
+  res.json(result);
+}));
+
+// GET /api/rooms/settings/alarm — fetch alarm settings
+router.get('/settings/alarm', requireAuth, asyncHandler(async (_req: Request, res: Response) => {
+  const settings = await getAlarmSettings();
+  res.json(settings);
+}));
+
+// PUT /api/rooms/settings/alarm — update alarm settings (Admin or Owner only)
+router.put('/settings/alarm', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const operator = (req as any).operator;
+  if (!operator || (operator.role !== 'admin' && operator.role !== 'owner')) {
+    return res.status(403).json({ error: 'Only Admin or Owner can modify system alarm settings' });
+  }
+
+  const {
+    alarm_pre_minutes,
+    alarm_post_minutes,
+    snooze_minutes,
+    overdue_repeat_minutes,
+    overdue_max_repeats,
+    extra_hour_rate,
+    open_time_reminder_hours,
+  } = req.body;
+
+  const updated = await updateAlarmSettings({
+    alarm_pre_minutes: alarm_pre_minutes !== undefined ? Number(alarm_pre_minutes) : undefined,
+    alarm_post_minutes: alarm_post_minutes !== undefined ? Number(alarm_post_minutes) : undefined,
+    snooze_minutes: snooze_minutes !== undefined ? Number(snooze_minutes) : undefined,
+    overdue_repeat_minutes: overdue_repeat_minutes !== undefined ? Number(overdue_repeat_minutes) : undefined,
+    overdue_max_repeats: overdue_max_repeats !== undefined ? Number(overdue_max_repeats) : undefined,
+    extra_hour_rate: extra_hour_rate !== undefined ? Number(extra_hour_rate) : undefined,
+    open_time_reminder_hours: open_time_reminder_hours !== undefined ? Number(open_time_reminder_hours) : undefined,
+  });
+
+  res.json(updated);
+}));
+
+export default router;

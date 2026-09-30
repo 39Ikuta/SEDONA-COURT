@@ -26,7 +26,9 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
   }
 
   const now = Date.now();
-  const attempt = loginAttempts.get(username) || { count: 0, timestamp: now };
+  const ip = String(req.ip || req.socket?.remoteAddress || '').slice(0, 64);
+  const attemptKey = `${username.toLowerCase()}|${ip}`;
+  const attempt = loginAttempts.get(attemptKey) || loginAttempts.get(username) || { count: 0, timestamp: now };
   if (now - attempt.timestamp > 15 * 60 * 1000) {
     attempt.count = 0;
     attempt.timestamp = now;
@@ -43,7 +45,7 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     );
     if (result.rows.length === 0) {
       attempt.count += 1;
-      loginAttempts.set(username, attempt);
+      loginAttempts.set(attemptKey, attempt);
       res.status(401).json({ error: 'Invalid username or access code' });
       return;
     }
@@ -51,11 +53,12 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     const valid = await bcrypt.compare(accessCode, user.access_code_hash);
     if (!valid) {
       attempt.count += 1;
-      loginAttempts.set(username, attempt);
+      loginAttempts.set(attemptKey, attempt);
       res.status(401).json({ error: 'Invalid username or access code' });
       return;
     }
 
+    loginAttempts.delete(attemptKey);
     loginAttempts.delete(username);
 
     const token = signJwt({

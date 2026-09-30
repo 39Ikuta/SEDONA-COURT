@@ -8,7 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/pool';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireCashierStaff } from '../middleware/auth';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
@@ -44,10 +44,10 @@ router.get('/', requireAuth, asyncHandler(async (_req: Request, res: Response) =
 }));
 
 // POST /api/pos-revenue/add — upsert and add to today's revenue
-router.post('/add', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+router.post('/add', requireCashierStaff, asyncHandler(async (req: Request, res: Response) => {
   const { amount, category } = req.body as { amount: number; category: 'kitchen' | 'drinks' | 'miscell' };
-  if (typeof amount !== 'number' || amount < 0) {
-    res.status(400).json({ error: 'amount must be a non-negative number' });
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > 500000) {
+    res.status(400).json({ error: 'amount must be a finite number 0..500000 (0 rejected, negatives rejected)' });
     return;
   }
   if (!['kitchen', 'drinks', 'miscell'].includes(category)) {
